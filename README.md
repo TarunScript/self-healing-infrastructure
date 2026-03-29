@@ -90,7 +90,7 @@ It integrates multiple data sources (logs, metrics, and traces), applies machine
 ---
 
 ## Contributors
-(Add team member names here)
+(DHRUV MAHAJAN, TARUN SINGH ,PURANJAY RAJPUT<,SUKHLEEN SINGH VIRK)
 
 ---
 
