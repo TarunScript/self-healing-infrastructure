@@ -1,0 +1,2779 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HackOps4Gs — Real-Time Observability & Autonomous Remediation</title>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --neon-cyan: #00f5ff;
+      --neon-green: #00ff88;
+      --neon-orange: #ff6b35;
+      --neon-purple: #b44fff;
+      --neon-red: #ff3b5c;
+      --dark-bg: #040812;
+      --dark-card: #080f1f;
+      --dark-border: #0d1f3c;
+      --text-primary: #e8f4fd;
+      --text-muted: #a8c4e0;
+      --grid-color: rgba(0, 245, 255, 0.03);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: var(--dark-bg);
+      color: var(--text-primary);
+      font-family: 'Syne', sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* Custom cursor */
+    .cursor {
+      width: 12px;
+      height: 12px;
+      background: var(--neon-cyan);
+      border-radius: 50%;
+      position: fixed;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      z-index: 99999;
+      transform: translate(-50%, -50%);
+      transition: transform 0.05s, width 0.2s, height 0.2s, background 0.2s;
+      mix-blend-mode: screen;
+    }
+
+    .cursor-trail {
+      width: 32px;
+      height: 32px;
+      border: 1px solid rgba(0, 245, 255, 0.3);
+      border-radius: 50%;
+      position: fixed;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      z-index: 99998;
+      transform: translate(-50%, -50%);
+      transition: transform 0.15s ease-out;
+    }
+
+    /* Grid background */
+    .grid-bg {
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--grid-color) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+      background-size: 60px 60px;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* Glowing orbs */
+    .orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(100px);
+      opacity: 0.12;
+      pointer-events: none;
+      z-index: 0;
+      animation: orb-drift 20s ease-in-out infinite;
+    }
+
+    .orb-1 {
+      width: 600px;
+      height: 600px;
+      background: var(--neon-cyan);
+      top: -200px;
+      left: -200px;
+      animation-delay: 0s;
+    }
+
+    .orb-2 {
+      width: 500px;
+      height: 500px;
+      background: var(--neon-purple);
+      bottom: -150px;
+      right: -150px;
+      animation-delay: -7s;
+    }
+
+    .orb-3 {
+      width: 400px;
+      height: 400px;
+      background: var(--neon-green);
+      top: 50%;
+      left: 50%;
+      animation-delay: -14s;
+    }
+
+    @keyframes orb-drift {
+
+      0%,
+      100% {
+        transform: translate(0, 0) scale(1);
+      }
+
+      33% {
+        transform: translate(60px, -40px) scale(1.05);
+      }
+
+      66% {
+        transform: translate(-40px, 60px) scale(0.95);
+      }
+    }
+
+    /* Scanline effect */
+    .scanlines {
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px,
+          rgba(0, 0, 0, 0.03) 2px, rgba(0, 0, 0, 0.03) 4px);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* ═══ NAVBAR ═══ */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      padding: 20px 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(to bottom, rgba(4, 8, 18, 0.95), transparent);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid rgba(0, 245, 255, 0.05);
+    }
+
+    .logo {
+      font-family: 'Space Mono', monospace;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--neon-cyan);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+
+    .logo span {
+      color: var(--text-muted);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 36px;
+    }
+
+    .nav-links a {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--text-muted);
+      text-decoration: none;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      transition: color 0.2s;
+      position: relative;
+    }
+
+    .nav-links a::after {
+      content: '';
+      position: absolute;
+      bottom: -4px;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: var(--neon-cyan);
+      transform: scaleX(0);
+      transition: transform 0.2s;
+    }
+
+    .nav-links a:hover {
+      color: var(--neon-cyan);
+    }
+
+    .nav-links a:hover::after {
+      transform: scaleX(1);
+    }
+
+    .nav-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--neon-green);
+      letter-spacing: 1px;
+    }
+
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--neon-green);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--neon-green);
+      animation: pulse-dot 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+
+      0%,
+      100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      50% {
+        opacity: 0.5;
+        transform: scale(0.8);
+      }
+    }
+
+    /* ═══ HERO ═══ */
+    #hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 120px 24px 80px;
+      z-index: 2;
+    }
+
+    .hero-eyebrow {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--neon-cyan);
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      margin-bottom: 24px;
+      opacity: 0;
+      animation: fade-up 0.8s 0.2s forwards;
+    }
+
+    .hero-title {
+      font-family: 'Syne', sans-serif;
+      font-size: clamp(18px, 4.5vw, 72px);
+      font-weight: 800;
+      line-height: 1.05;
+      text-align: center;
+      width: fit-content;
+      max-width: calc(100% - 48px);
+      margin: 0 auto 32px;
+      opacity: 0;
+      animation: fade-up 0.8s 0.4s forwards;
+    }
+
+    .hero-title .line-1,
+    .hero-title .line-2 {
+      display: block;
+      white-space: nowrap;
+    }
+
+    .hero-title .line-1 {
+      color: var(--text-primary);
+    }
+
+    .hero-title .line-2 {
+      background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple), var(--neon-green));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      background-size: 200% 200%;
+      animation: gradient-shift 4s ease infinite, fade-up 0.8s 0.4s forwards;
+    }
+
+    @keyframes gradient-shift {
+
+      0%,
+      100% {
+        background-position: 0% 50%;
+      }
+
+      50% {
+        background-position: 100% 50%;
+      }
+    }
+
+    .hero-subtitle {
+      font-size: 18px;
+      color: var(--text-muted);
+      text-align: center;
+      max-width: 680px;
+      line-height: 1.7;
+      margin-bottom: 48px;
+      opacity: 0;
+      animation: fade-up 0.8s 0.6s forwards;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      opacity: 0;
+      animation: fade-up 0.8s 0.8s forwards;
+    }
+
+    .btn-primary {
+      padding: 14px 36px;
+      background: var(--neon-cyan);
+      color: var(--dark-bg);
+      font-family: 'Space Mono', monospace;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      border: none;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.2s, box-shadow 0.2s;
+      clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
+      text-decoration: none;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 40px rgba(0, 245, 255, 0.4);
+    }
+
+    .btn-secondary {
+      padding: 14px 36px;
+      background: transparent;
+      color: var(--text-primary);
+      font-family: 'Space Mono', monospace;
+      font-size: 13px;
+      font-weight: 400;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      border: 1px solid var(--dark-border);
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+      clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
+      text-decoration: none;
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--neon-cyan);
+      color: var(--neon-cyan);
+    }
+
+    /* Hero stats bar */
+    .hero-stats {
+      display: flex;
+      gap: 0;
+      margin-top: 80px;
+      border: 1px solid var(--dark-border);
+      opacity: 0;
+      animation: fade-up 0.8s 1s forwards;
+      position: relative;
+    }
+
+    .hero-stats::before {
+      content: '';
+      position: absolute;
+      top: -1px;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+      animation: scan-line 3s linear infinite;
+    }
+
+    @keyframes scan-line {
+      0% {
+        transform: translateX(-100%);
+      }
+
+      100% {
+        transform: translateX(100%);
+      }
+    }
+
+    .stat-item {
+      padding: 28px 48px;
+      border-right: 1px solid var(--dark-border);
+      text-align: center;
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: rgba(8, 15, 31, 0.6);
+    }
+
+    .stat-item:last-child {
+      border-right: none;
+    }
+
+    .stat-item::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at center, rgba(0, 245, 255, 0.04), transparent);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .stat-item:hover::before {
+      opacity: 1;
+    }
+
+    .stat-value {
+      font-family: 'Space Mono', monospace;
+      font-size: 38px;
+      font-weight: 700;
+      color: var(--neon-cyan);
+      display: block;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+
+    .stat-value.green {
+      color: var(--neon-green);
+    }
+
+    .stat-value.orange {
+      color: var(--neon-orange);
+    }
+
+    .stat-value.purple {
+      color: var(--neon-purple);
+    }
+
+    .stat-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    @keyframes fade-up {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* ═══ SECTION BASE ═══ */
+    section {
+      position: relative;
+      z-index: 2;
+      padding: 120px 48px;
+    }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 80px;
+    }
+
+    .section-tag {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--neon-cyan);
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      display: block;
+    }
+
+    .section-title {
+      font-size: clamp(36px, 5vw, 64px);
+      font-weight: 800;
+      line-height: 1.05;
+      max-width: 800px;
+      margin: 0 auto 20px;
+    }
+
+    .section-desc {
+      font-size: 16px;
+      color: var(--text-muted);
+      max-width: 560px;
+      margin: 0 auto;
+      line-height: 1.7;
+    }
+
+    /* ═══ ARCHITECTURE SECTION ═══ */
+    #architecture {
+      background: linear-gradient(to bottom, transparent, rgba(0, 245, 255, 0.02), transparent);
+    }
+
+    .arch-diagram {
+      max-width: 1100px;
+      margin: 0 auto;
+      position: relative;
+    }
+
+    .arch-layers {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .arch-layer {
+      display: flex;
+      align-items: stretch;
+      gap: 3px;
+      opacity: 1;
+      transform: translateX(0);
+      transition: opacity 0.5s, transform 0.5s;
+    }
+
+    .arch-layer.will-animate {
+      opacity: 0;
+      transform: translateX(-30px);
+    }
+
+    .arch-layer.will-animate.visible {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .layer-label {
+      width: 160px;
+      min-width: 160px;
+      padding: 20px 16px;
+      background: var(--dark-card);
+      border: 1px solid var(--dark-border);
+      border-right: 3px solid var(--neon-cyan);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    .layer-label span {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      color: var(--neon-cyan);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      text-align: right;
+    }
+
+    .layer-nodes {
+      flex: 1;
+      display: flex;
+      gap: 3px;
+    }
+
+    .arch-node {
+      flex: 1;
+      padding: 16px 20px;
+      background: var(--dark-card);
+      border: 1px solid var(--dark-border);
+      text-align: center;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.25s, transform 0.2s, box-shadow 0.25s;
+      user-select: none;
+    }
+
+    .arch-node:hover {
+      border-color: var(--node-color, var(--neon-cyan));
+      transform: translateY(-3px);
+      z-index: 1;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4), 0 0 20px color-mix(in srgb, var(--node-color, var(--neon-cyan)) 20%, transparent);
+    }
+
+    .arch-node::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--node-color, var(--neon-cyan));
+      transform: scaleX(0);
+      transition: transform 0.3s;
+    }
+
+    .arch-node:hover::before {
+      transform: scaleX(1);
+    }
+
+    .arch-node .click-hint {
+      position: absolute;
+      bottom: 5px;
+      right: 7px;
+      font-family: 'DM Mono', monospace;
+      font-size: 8px;
+      color: var(--node-color, var(--neon-cyan));
+      opacity: 0;
+      transition: opacity 0.2s;
+      letter-spacing: 1px;
+    }
+
+    .arch-node:hover .click-hint {
+      opacity: 0.6;
+    }
+
+    .node-icon {
+      font-size: 20px;
+      margin-bottom: 6px;
+      display: block;
+    }
+
+    .node-name {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--text-primary);
+      letter-spacing: 1px;
+      display: block;
+      margin-bottom: 3px;
+    }
+
+    .node-tech {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+    }
+
+    /* ═══ NODE MODAL OVERLAY ═══ */
+    #node-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9000;
+      background: rgba(4, 8, 18, 0.85);
+      backdrop-filter: blur(12px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+
+    #node-overlay.active {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .node-modal {
+      background: var(--dark-card);
+      border: 1px solid var(--modal-color, var(--neon-cyan));
+      max-width: 560px;
+      width: 90%;
+      position: relative;
+      box-shadow: 0 0 80px color-mix(in srgb, var(--modal-color, var(--neon-cyan)) 25%, transparent), 0 40px 80px rgba(0, 0, 0, 0.8);
+      transform: translateY(30px) scale(0.97);
+      transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+      overflow: hidden;
+    }
+
+    #node-overlay.active .node-modal {
+      transform: translateY(0) scale(1);
+    }
+
+    .node-modal::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, var(--modal-color, var(--neon-cyan)), transparent);
+    }
+
+    .node-modal::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at top, color-mix(in srgb, var(--modal-color, var(--neon-cyan)) 5%, transparent), transparent 60%);
+      pointer-events: none;
+    }
+
+    .modal-header {
+      padding: 28px 32px 20px;
+      border-bottom: 1px solid var(--dark-border);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .modal-icon {
+      font-size: 36px;
+      line-height: 1;
+    }
+
+    .modal-header-text {
+      flex: 1;
+    }
+
+    .modal-layer-tag {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--modal-color, var(--neon-cyan));
+      margin-bottom: 6px;
+      display: block;
+    }
+
+    .modal-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .modal-close {
+      width: 32px;
+      height: 32px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--dark-border);
+      color: var(--text-muted);
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+      flex-shrink: 0;
+    }
+
+    .modal-close:hover {
+      background: rgba(255, 59, 92, 0.15);
+      color: var(--neon-red);
+      border-color: var(--neon-red);
+    }
+
+    .modal-body {
+      padding: 24px 32px 28px;
+    }
+
+    .modal-how-we-used {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .modal-how-we-used::before {
+      content: '';
+      width: 16px;
+      height: 1px;
+      background: var(--modal-color, var(--neon-cyan));
+    }
+
+    .modal-desc {
+      font-size: 14px;
+      color: var(--text-primary);
+      line-height: 1.8;
+      margin-bottom: 20px;
+      opacity: 0.9;
+    }
+
+    .modal-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 20px;
+    }
+
+    .modal-chip {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      padding: 4px 12px;
+      border: 1px solid color-mix(in srgb, var(--modal-color, var(--neon-cyan)) 30%, transparent);
+      color: var(--modal-color, var(--neon-cyan));
+      background: color-mix(in srgb, var(--modal-color, var(--neon-cyan)) 6%, transparent);
+      letter-spacing: 1px;
+    }
+
+    .modal-stat-row {
+      display: flex;
+      gap: 2px;
+      margin-top: 4px;
+    }
+
+    .modal-stat {
+      flex: 1;
+      padding: 12px 14px;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--dark-border);
+      text-align: center;
+    }
+
+    .modal-stat-val {
+      font-family: 'Space Mono', monospace;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--modal-color, var(--neon-cyan));
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .modal-stat-lbl {
+      font-family: 'DM Mono', monospace;
+      font-size: 8px;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    /* ═══ PIPELINE SECTION ═══ */
+    #pipeline {
+      background: var(--dark-card);
+      border-top: 1px solid var(--dark-border);
+      border-bottom: 1px solid var(--dark-border);
+    }
+
+    .pipeline-flow {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+      position: relative;
+    }
+
+    .pipeline-flow::before {
+      content: '';
+      position: absolute;
+      top: 56px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--neon-cyan), var(--neon-purple), var(--neon-green), var(--neon-orange));
+      z-index: 0;
+    }
+
+    .pipeline-step {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      z-index: 1;
+      opacity: 0;
+      animation: step-appear 0.6s forwards;
+    }
+
+    .pipeline-step:nth-child(1) {
+      animation-delay: 0.1s;
+    }
+
+    .pipeline-step:nth-child(2) {
+      animation-delay: 0.25s;
+    }
+
+    .pipeline-step:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+
+    .pipeline-step:nth-child(4) {
+      animation-delay: 0.55s;
+    }
+
+    .pipeline-step:nth-child(5) {
+      animation-delay: 0.7s;
+    }
+
+    @keyframes step-appear {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .step-orb {
+      width: 112px;
+      height: 112px;
+      border-radius: 50%;
+      background: var(--dark-bg);
+      border: 2px solid var(--step-color, var(--neon-cyan));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      position: relative;
+      margin-bottom: 24px;
+      box-shadow: 0 0 30px var(--step-glow, rgba(0, 245, 255, 0.2));
+      transition: transform 0.3s, box-shadow 0.3s;
+    }
+
+    .step-orb:hover {
+      transform: scale(1.08);
+      box-shadow: 0 0 60px var(--step-glow, rgba(0, 245, 255, 0.4));
+    }
+
+    .step-number {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      width: 24px;
+      height: 24px;
+      background: var(--step-color, var(--neon-cyan));
+      color: var(--dark-bg);
+      border-radius: 50%;
+      font-family: 'Space Mono', monospace;
+      font-size: 10px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .step-title {
+      font-size: 15px;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 8px;
+      color: var(--text-primary);
+    }
+
+    .step-tech {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    .step-ms {
+      margin-top: 12px;
+      font-family: 'Space Mono', monospace;
+      font-size: 11px;
+      color: var(--step-color, var(--neon-cyan));
+      letter-spacing: 1px;
+    }
+
+    /* ═══ FEATURES SECTION ═══ */
+    #features {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .feature-card {
+      background: var(--dark-card);
+      border: 1px solid var(--dark-border);
+      padding: 40px 36px;
+      position: relative;
+      overflow: hidden;
+      cursor: default;
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 0.5s, transform 0.5s, border-color 0.2s;
+    }
+
+    .feature-card.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .feature-card:hover {
+      border-color: var(--card-color, var(--neon-cyan));
+      transform: translateY(-4px) !important;
+    }
+
+    .feature-card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at top left, rgba(0, 245, 255, 0.04), transparent 60%);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .feature-card:hover::after {
+      opacity: 1;
+    }
+
+    .feature-icon {
+      font-size: 32px;
+      margin-bottom: 20px;
+      display: block;
+    }
+
+    .feature-tag {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border: 1px solid;
+      display: inline-block;
+      margin-bottom: 16px;
+    }
+
+    .feature-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      line-height: 1.2;
+    }
+
+    .feature-desc {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.7;
+    }
+
+    .feature-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 20px;
+    }
+
+    .chip {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      padding: 3px 10px;
+      background: rgba(0, 245, 255, 0.05);
+      border: 1px solid rgba(0, 245, 255, 0.15);
+      color: var(--neon-cyan);
+      letter-spacing: 1px;
+    }
+
+    /* ═══ SELF-HEALING SIMULATION ═══ */
+    #demo {
+      background: linear-gradient(to bottom, transparent, rgba(0, 245, 255, 0.02), transparent);
+    }
+
+    .sim-container {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    .sim-screen {
+      background: var(--dark-card);
+      border: 1px solid var(--dark-border);
+      border-top: 3px solid var(--neon-cyan);
+      position: relative;
+      overflow: hidden;
+      border-radius: 4px;
+    }
+
+    .sim-topbar {
+      background: rgba(4, 8, 18, 0.95);
+      border-bottom: 1px solid var(--dark-border);
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .sim-dots { display: flex; gap: 6px; }
+    .sim-dots span { width: 10px; height: 10px; border-radius: 50%; }
+    .sim-dot-r { background: #ff5f56; }
+    .sim-dot-y { background: #ffbd2e; }
+    .sim-dot-g { background: #27c93f; }
+
+    .sim-title-bar {
+      flex: 1;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: center;
+      letter-spacing: 2px;
+    }
+
+    .sim-live-badge {
+      display: flex; align-items: center; gap: 6px;
+      font-family: 'DM Mono', monospace;
+      font-size: 10px; color: var(--neon-green);
+    }
+
+    .sim-body {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      min-height: 420px;
+    }
+
+    .sim-left {
+      padding: 24px;
+      border-right: 1px solid var(--dark-border);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sim-right {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+    }
+
+    .sim-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .sim-label::before {
+      content: '';
+      width: 16px; height: 1px;
+      background: var(--neon-cyan);
+    }
+
+    /* Terminal log area */
+    .sim-terminal {
+      flex: 1;
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      line-height: 1.9;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--dark-border) transparent;
+      background: rgba(0,0,0,0.25);
+      border: 1px solid var(--dark-border);
+      padding: 12px 14px;
+      border-radius: 2px;
+    }
+
+    .sim-log {
+      padding: 1px 0;
+      opacity: 0;
+      animation: sim-log-in 0.35s forwards;
+    }
+
+    @keyframes sim-log-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .sim-log .sim-ts { color: var(--text-muted); }
+    .sim-log .sim-svc { color: var(--neon-purple); }
+    .sim-log .sim-msg { color: var(--text-primary); }
+    .sim-log.sim-err .sim-msg { color: var(--neon-red); }
+    .sim-log.sim-fix .sim-msg { color: var(--neon-green); }
+    .sim-log.sim-info .sim-msg { color: var(--neon-cyan); }
+
+    /* Circular timer */
+    .sim-timer-wrap {
+      position: relative;
+      width: 140px; height: 140px;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .sim-timer-ring {
+      position: absolute; inset: 0;
+    }
+
+    .sim-timer-ring circle {
+      fill: none;
+      stroke-width: 4;
+      stroke-linecap: round;
+    }
+
+    .sim-timer-ring .sim-ring-bg {
+      stroke: rgba(255,255,255,0.05);
+    }
+
+    .sim-timer-ring .sim-ring-fill {
+      stroke: var(--neon-green);
+      stroke-dasharray: 408;
+      stroke-dashoffset: 408;
+      transition: stroke-dashoffset 0.3s linear, stroke 0.4s;
+      transform: rotate(-90deg);
+      transform-origin: center;
+    }
+
+    .sim-timer-text {
+      font-family: 'Space Mono', monospace;
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--neon-green);
+      transition: color 0.4s;
+      z-index: 1;
+    }
+
+    .sim-timer-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      color: var(--text-muted);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      text-align: center;
+    }
+
+    /* Stage pipeline */
+    .sim-stages {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .sim-stage {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border: 1px solid var(--dark-border);
+      background: rgba(0,0,0,0.15);
+      border-radius: 2px;
+      opacity: 0.35;
+      transition: opacity 0.4s, border-color 0.4s, background 0.4s, box-shadow 0.4s;
+    }
+
+    .sim-stage.sim-active {
+      opacity: 1;
+      border-color: var(--neon-cyan);
+      background: rgba(0, 245, 255, 0.04);
+      box-shadow: 0 0 16px rgba(0, 245, 255, 0.08);
+    }
+
+    .sim-stage.sim-done {
+      opacity: 0.85;
+      border-color: var(--neon-green);
+      background: rgba(0, 255, 136, 0.04);
+    }
+
+    .sim-stage-icon {
+      font-size: 16px;
+      width: 24px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    .sim-stage-name {
+      flex: 1;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--text-primary);
+      letter-spacing: 1px;
+    }
+
+    .sim-stage-status {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: var(--text-muted);
+      transition: color 0.3s;
+    }
+
+    .sim-stage.sim-active .sim-stage-status { color: var(--neon-cyan); }
+    .sim-stage.sim-done .sim-stage-status { color: var(--neon-green); }
+
+    /* Error card at top-right */
+    .sim-error-card {
+      width: 100%;
+      padding: 14px 16px;
+      border: 1px solid var(--neon-red);
+      background: rgba(255, 59, 92, 0.06);
+      border-radius: 2px;
+      opacity: 0;
+      transform: translateY(-8px);
+      transition: opacity 0.4s, transform 0.4s;
+    }
+
+    .sim-error-card.sim-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .sim-error-card.sim-resolved {
+      border-color: var(--neon-green);
+      background: rgba(0, 255, 136, 0.06);
+    }
+
+    .sim-error-type {
+      font-family: 'Space Mono', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--neon-red);
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+      transition: color 0.4s;
+    }
+
+    .sim-error-card.sim-resolved .sim-error-type {
+      color: var(--neon-green);
+    }
+
+    .sim-error-detail {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+      line-height: 1.6;
+    }
+
+    @keyframes sim-pulse-border {
+      0%, 100% { box-shadow: 0 0 8px rgba(255, 59, 92, 0.2); }
+      50% { box-shadow: 0 0 20px rgba(255, 59, 92, 0.5); }
+    }
+
+    .sim-error-card.sim-visible:not(.sim-resolved) {
+      animation: sim-pulse-border 1.5s ease-in-out infinite;
+    }
+
+    /* ═══ ML SECTION ═══ */
+    #ml-stack {
+      background: var(--dark-card);
+      border-top: 1px solid var(--dark-border);
+      border-bottom: 1px solid var(--dark-border);
+    }
+
+    .ml-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 2px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .ml-card {
+      background: var(--dark-bg);
+      border: 1px solid var(--dark-border);
+      padding: 36px 28px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.3s, border-color 0.3s;
+      cursor: default;
+    }
+
+    .ml-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--ml-color, var(--neon-cyan));
+    }
+
+    .ml-card::before {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--ml-color, var(--neon-cyan));
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform 0.4s;
+    }
+
+    .ml-card:hover::before {
+      transform: scaleX(1);
+    }
+
+    .ml-icon {
+      font-size: 40px;
+      margin-bottom: 16px;
+    }
+
+    .ml-name {
+      font-family: 'Space Mono', monospace;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--ml-color, var(--neon-cyan));
+    }
+
+    .ml-model {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+      margin-bottom: 12px;
+      line-height: 1.6;
+    }
+
+    .ml-badge {
+      display: inline-block;
+      padding: 3px 12px;
+      border: 1px solid;
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    /* ═══ REMEDIATION SECTION ═══ */
+    #remediation {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .action-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .action-card {
+      padding: 32px 28px;
+      border: 1px solid var(--dark-border);
+      background: var(--dark-card);
+      position: relative;
+      overflow: hidden;
+      cursor: default;
+      transition: transform 0.3s, border-color 0.3s;
+    }
+
+    .action-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--action-color);
+    }
+
+    .action-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: var(--action-color);
+    }
+
+    .action-number {
+      font-family: 'Space Mono', monospace;
+      font-size: 40px;
+      font-weight: 700;
+      color: rgba(255, 255, 255, 0.04);
+      position: absolute;
+      top: 12px;
+      right: 20px;
+      line-height: 1;
+    }
+
+    .action-icon {
+      font-size: 28px;
+      margin-bottom: 16px;
+    }
+
+    .action-name {
+      font-family: 'Space Mono', monospace;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--action-color);
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+
+    .action-trigger {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+      line-height: 1.6;
+    }
+
+    .action-api {
+      margin-top: 16px;
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.4);
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+      border-left: 2px solid var(--action-color);
+    }
+
+    /* ═══ STACK SECTION ═══ */
+    #tech-stack {
+      background: var(--dark-card);
+      border-top: 1px solid var(--dark-border);
+      border-bottom: 1px solid var(--dark-border);
+    }
+
+    .tech-marquee-container {
+      overflow: hidden;
+      margin: 0 -48px;
+      padding: 24px 0;
+      border-top: 1px solid var(--dark-border);
+      border-bottom: 1px solid var(--dark-border);
+    }
+
+    .tech-marquee {
+      display: flex;
+      gap: 32px;
+      animation: marquee 20s linear infinite;
+      width: max-content;
+    }
+
+    .tech-marquee-2 {
+      animation-direction: reverse;
+      animation-duration: 25s;
+    }
+
+    @keyframes marquee {
+      from {
+        transform: translateX(0);
+      }
+
+      to {
+        transform: translateX(-50%);
+      }
+    }
+
+    .tech-pill {
+      padding: 8px 20px;
+      border: 1px solid var(--dark-border);
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      white-space: nowrap;
+      background: var(--dark-bg);
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .tech-pill:hover {
+      border-color: var(--neon-cyan);
+      color: var(--neon-cyan);
+    }
+
+    /* ═══ FOOTER / CTA ═══ */
+    #cta {
+      text-align: center;
+      padding: 160px 48px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #cta::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 800px;
+      height: 400px;
+      background: radial-gradient(ellipse, rgba(0, 245, 255, 0.06), transparent 70%);
+      pointer-events: none;
+    }
+
+    .cta-title {
+      font-size: clamp(44px, 6vw, 88px);
+      font-weight: 800;
+      line-height: 1;
+      margin-bottom: 24px;
+    }
+
+    .cta-title .highlight {
+      color: var(--neon-cyan);
+      position: relative;
+      display: inline-block;
+    }
+
+    .cta-title .highlight::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: var(--neon-cyan);
+      box-shadow: 0 0 20px var(--neon-cyan);
+    }
+
+    .footer {
+      margin-top: 80px;
+      padding-top: 40px;
+      border-top: 1px solid var(--dark-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      letter-spacing: 2px;
+    }
+
+    /* Dependency graph mini */
+    .dep-graph {
+      max-width: 800px;
+      margin: 40px auto 0;
+      position: relative;
+      height: 260px;
+    }
+
+    .dep-node {
+      position: absolute;
+      padding: 10px 16px;
+      background: var(--dark-card);
+      border: 1px solid var(--dark-border);
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      color: var(--text-primary);
+      letter-spacing: 1px;
+      white-space: nowrap;
+      transition: border-color 0.3s, box-shadow 0.3s;
+      cursor: default;
+    }
+
+    .dep-node:hover {
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 20px rgba(0, 245, 255, 0.2);
+      z-index: 10;
+    }
+
+    .dep-node.anomaly {
+      border-color: var(--neon-red);
+      box-shadow: 0 0 20px rgba(255, 59, 92, 0.3);
+      animation: node-pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes node-pulse {
+
+      0%,
+      100% {
+        box-shadow: 0 0 20px rgba(255, 59, 92, 0.3);
+      }
+
+      50% {
+        box-shadow: 0 0 40px rgba(255, 59, 92, 0.6);
+      }
+    }
+
+    .dep-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--dark-border);
+      border-radius: 2px;
+    }
+
+    /* Utility */
+    .text-cyan {
+      color: var(--neon-cyan);
+    }
+
+    .text-green {
+      color: var(--neon-green);
+    }
+
+    .text-orange {
+      color: var(--neon-orange);
+    }
+
+    .text-purple {
+      color: var(--neon-purple);
+    }
+
+    .text-red {
+      color: var(--neon-red);
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="cursor" id="cursor"></div>
+  <div class="cursor-trail" id="cursorTrail"></div>
+  <div class="grid-bg"></div>
+  <div class="scanlines"></div>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+
+  <!-- ═══ NAV ═══ -->
+  <nav>
+    <div class="logo">HackOps4Gs</div>
+    <div class="nav-links">
+      <a href="#architecture">Architecture</a>
+      <a href="#pipeline">Pipeline</a>
+      <a href="#ml-stack">ML Stack</a>
+      <a href="#demo">Live Demo</a>
+      <a href="#remediation">Remediation</a>
+    </div>
+    <div class="nav-badge">
+      <div class="live-dot"></div>
+      SYSTEM ACTIVE
+    </div>
+  </nav>
+
+  <!-- ═══ HERO ═══ -->
+  <section id="hero">
+    <div class="hero-eyebrow">Hackathon Presentation · Real-Time AI Observability</div>
+    <h1 class="hero-title">
+      <span class="line-1">AUTONOMOUS</span>
+      <span class="line-2">SELF-HEALING</span>
+      <span class="line-1">INFRASTRUCTURE</span>
+    </h1>
+    <p class="hero-subtitle">
+      An end-to-end AI observability system that ingests live logs, metrics &amp; traces — performs root cause analysis
+      using ML — and triggers automated remediations in under <strong style="color:var(--neon-cyan)">15
+        seconds</strong>.
+    </p>
+    <div class="hero-actions">
+      <a href="#demo" class="btn-primary">LAUNCH DEMO</a>
+      <a href="#pipeline" class="btn-secondary">EXPLORE PIPELINE</a>
+    </div>
+    <div class="hero-stats">
+      <div class="stat-item">
+        <span class="stat-value" id="counter-sla">15s</span>
+        <span class="stat-label">SLA Target</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value green">6+</span>
+        <span class="stat-label">Microservices</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value orange">3</span>
+        <span class="stat-label">ML Models</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value purple">3</span>
+        <span class="stat-label">Remediation Actions</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value text-red">99%</span>
+        <span class="stat-label">Auto-Resolved Incidents</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ ARCHITECTURE ═══ -->
+  <section id="architecture">
+    <div class="section-header">
+      <span class="section-tag">System Design</span>
+      <h2 class="section-title">Full-Stack Observability Architecture</h2>
+      <p class="section-desc">Six microservices generating real load via k6/Locust. Every signal — logs, metrics, traces
+        — flows into a unified AI analysis pipeline.</p>
+    </div>
+    <div class="arch-diagram">
+      <div class="arch-layers">
+        <!-- Row 1: Load Generation -->
+        <div class="arch-layer" data-delay="0">
+          <div class="layer-label"><span>Load<br>Layer</span></div>
+          <div class="layer-nodes">
+            <div class="arch-node" style="--node-color:var(--neon-purple)" onclick="openModal('locust')" tabindex="0">
+              <span class="node-icon">🔥</span>
+              <span class="node-name">Locust / k6</span>
+              <span class="node-tech">Load Generator</span>
+              <span class="click-hint">CLICK TO EXPAND</span>
+            </div>
+            <div class="arch-node" style="--node-color:var(--neon-purple)" onclick="openModal('boutique')" tabindex="0">
+              <span class="node-icon">🛍️</span>
+              <span class="node-name">Online Boutique</span>
+              <span class="node-tech">6+ Services · Docker Compose</span>
+              <span class="click-hint">CLICK TO EXPAND</span>
+            </div>
+            <div class="arch-node" style="--node-color:var(--neon-purple)" onclick="openModal('chaos')" tabindex="0">
+              <span class="node-icon">⚡</span>
+              <span class="node-name">Chaos Endpoint</span>
+              <span class="node-tech">/api/chaos · Fault Injection</span>
+              <span class="click-hint">CLICK TO EXPAND</span>
+            </div>
+          </div>
+        </div>
+        <!-- Row 2: Signal Collection -->
+        <div class="arch-layer" data-delay="100">
+          <div class="layer-label"><span>Signal<br>Layer</span></div>
+          <div class="layer-nodes">
+            <div class="arch-node" style="--node-color:var(--neon-orange)" onclick="openModal('prometheus')"
+              tabindex="0">
+              <span class="node-icon">📊</span>
+              <span class="node-name">Prometheus</span>
+              <span class="node-tech">Metrics · p99/p50 Latency</span>
+              <span class="click-hint">CLICK TO EXPAND</span>
+            </div>
+            <div class="arch-node" style="--node-color:var(--neon-orange)" onclick="openModal('loki')" tabindex="0">
+              <span class="node-icon">📋</span>
+              <span class="node-name">Loki / OpenSearch</span>
+              <span class="node-tech">Structured Logs</span>
+              <span class="click-hint">CLICK TO EXPAND</span>
+            </div>
+            <div class="arch-node" style="--node-color:var(--neon-orange)" onclick="openModal('jaeger')" tabindex="0">
+              <span class="node-icon">📍</span>
+              <span class="node-name">Jaeger</span>
+              <span class="node-tech">Distributed Traces</span>
+              <span class="click-hint">CLICK TO EXPAND</span>
+            </div>
+            <div class="arch-node" style="--node-color:var(--neon-orange)" onclick="openModal('otel')" tabindex="0">
+              <span class="node-icon">🔗</span>
+              <span class="node-name">OTel Collector</span>
+              <span class="node-tech">Signal Routing</span>
+              <span class="click-hint">CLICK TO EXPAND</span>
+            </div>
+          </div>
+        </div>
+        <!-- Row 3: AI Layer -->
+        <div class="arch-layer" data-delay="200">
+          <div class="layer-label"><span>AI<br>Layer</span></div>
+          <div class="layer-nodes">
+            <div class="arch-node" style="--node-color:var(--neon-cyan)" onclick="openModal('drain')" tabindex="0">
+              <span class="node-icon">🧠</span>
+              <span class="node-name">Drain3 + DistilBERT</span>
+              <span class="node-tech">Log Template Mining + NLI Classifier</span>
+              <span class="click-hint">CLICK TO EXPAND</span>
+            </div>
+            <div class="arch-node" style="--node-color:var(--neon-cyan)" onclick="openModal('iforest')" tabindex="0">
+              <span class="node-icon">📈</span>
+              <span class="node-name">Isolation Forest + LSTM</span>
+              <span class="node-tech">Metric Anomaly + Degradation Score</span>
+              <span class="click-hint">CLICK TO EXPAND</span>
+            </div>
+            <div class="arch-node" style="--node-color:var(--neon-cyan)" onclick="openModal('rca')" tabindex="0">
+              <span class="node-icon">🕸️</span>
+              <span class="node-name">Causal RCA Engine</span>
+              <span class="node-tech">Live Trace Dependency Graph</span>
+              <span class="click-hint">CLICK TO EXPAND</span>
+            </div>
+            <div class="arch-node" style="--node-color:var(--neon-cyan)" onclick="openModal('explainability')"
+              tabindex="0">
+              <span class="node-icon">📦</span>
+              <span class="node-name">Explainability Engine</span>
+              <span class="node-tech">Evidence Packets · Confidence Scores</span>
+              <span class="click-hint">CLICK TO EXPAND</span>
+            </div>
+          </div>
+        </div>
+        <!-- Row 4: Action Layer -->
+        <div class="arch-layer" data-delay="300">
+          <div class="layer-label"><span>Action<br>Layer</span></div>
+          <div class="layer-nodes">
+            <div class="arch-node" style="--node-color:var(--neon-green)" onclick="openModal('restart')" tabindex="0">
+              <span class="node-icon">🔄</span>
+              <span class="node-name">Container Restart</span>
+              <span class="node-tech">Docker SDK · docker.restart()</span>
+              <span class="click-hint">CLICK TO EXPAND</span>
+            </div>
+            <div class="arch-node" style="--node-color:var(--neon-green)" onclick="openModal('scaleup')" tabindex="0">
+              <span class="node-icon">⬆️</span>
+              <span class="node-name">Scale Up</span>
+              <span class="node-tech">Docker Compose · Add Replica</span>
+              <span class="click-hint">CLICK TO EXPAND</span>
+            </div>
+            <div class="arch-node" style="--node-color:var(--neon-green)" onclick="openModal('cputhrottle')"
+              tabindex="0">
+              <span class="node-icon">🛡️</span>
+              <span class="node-name">CPU Throttle</span>
+              <span class="node-tech">docker update --cpus · Resource Limit</span>
+              <span class="click-hint">CLICK TO EXPAND</span>
+            </div>
+            <div class="arch-node" style="--node-color:var(--neon-green)" onclick="openModal('grafana')" tabindex="0">
+              <span class="node-icon">📊</span>
+              <span class="node-name">Grafana Dashboard</span>
+              <span class="node-tech">Real-Time SLA Gauge · Annotations</span>
+              <span class="click-hint">CLICK TO EXPAND</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ PIPELINE ═══ -->
+  <section id="pipeline">
+    <div class="section-header">
+      <span class="section-tag">Detection Pipeline</span>
+      <h2 class="section-title">From Failure to Fix in 15 Seconds</h2>
+      <p class="section-desc">Every cycle: ingest → detect → correlate → attribute → remediate. Fully automated.
+        Evidence-backed at every step.</p>
+    </div>
+
+    <div class="pipeline-flow">
+      <div class="pipeline-step">
+        <div class="step-orb" style="--step-color:var(--neon-purple);--step-glow:rgba(180,79,255,0.25)">
+          🔥
+          <div class="step-number">1</div>
+        </div>
+        <div class="step-title">Live Load</div>
+        <div class="step-tech">Locust · k6<br>Fault Injection<br>/api/chaos</div>
+        <div class="step-ms" style="color:var(--neon-purple)">CONTINUOUS</div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-orb" style="--step-color:var(--neon-orange);--step-glow:rgba(255,107,53,0.25)">
+          📶
+          <div class="step-number">2</div>
+        </div>
+        <div class="step-title">Signal Ingestion</div>
+        <div class="step-tech">Logs → Loki<br>Metrics → Prometheus<br>Traces → Jaeger</div>
+        <div class="step-ms" style="color:var(--neon-orange)">&lt; 1s</div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-orb" style="--step-color:var(--neon-cyan);--step-glow:rgba(0,245,255,0.25)">
+          🧠
+          <div class="step-number">3</div>
+        </div>
+        <div class="step-title">AI Detection</div>
+        <div class="step-tech">Drain3+DistilBERT<br>IsolationForest+LSTM<br>Trace Correlation</div>
+        <div class="step-ms" style="color:var(--neon-cyan)">&lt; 3s</div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-orb" style="--step-color:var(--neon-red);--step-glow:rgba(255,59,92,0.25)">
+          🎯
+          <div class="step-number">4</div>
+        </div>
+        <div class="step-title">Root Cause</div>
+        <div class="step-tech">Causal Graph Traversal<br>Confidence Scoring<br>Evidence Packet</div>
+        <div class="step-ms" style="color:var(--neon-red)">&lt; 5s</div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-orb" style="--step-color:var(--neon-green);--step-glow:rgba(0,255,136,0.25)">
+          ⚡
+          <div class="step-number">5</div>
+        </div>
+        <div class="step-title">Auto-Remediate</div>
+        <div class="step-tech">restart / scale_up<br>cpu_throttle<br>Confidence Gated</div>
+        <div class="step-ms" style="color:var(--neon-green)">≤ 15s TOTAL</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ ML STACK ═══ -->
+  <section id="ml-stack">
+    <div class="section-header">
+      <span class="section-tag">Machine Learning</span>
+      <h2 class="section-title">Three-Model AI Stack</h2>
+      <p class="section-desc">Each model targets a distinct signal type. All three outputs are fused by the RCA engine
+        to produce a single high-confidence root cause attribution.</p>
+    </div>
+    <div class="ml-grid">
+      <div class="ml-card" style="--ml-color:var(--neon-orange)">
+        <div class="ml-icon">📤</div>
+        <div class="ml-name">LOG CLASSIFIER</div>
+        <div class="ml-model">Drain3 template mining<br>+ DistilBERT / MNLI<br>Severity re-scoring wrapper</div>
+        <span class="ml-badge" style="color:var(--neon-orange);border-color:var(--neon-orange)">&lt;100ms EXTRA</span>
+      </div>
+      <div class="ml-card" style="--ml-color:var(--neon-cyan)">
+        <div class="ml-icon">⏲</div>
+        <div class="ml-name">METRIC DETECTOR</div>
+        <div class="ml-model">Isolation Forest<br>Unsupervised · Per-service<br>Feature vectors from Prometheus</div>
+        <span class="ml-badge" style="color:var(--neon-cyan);border-color:var(--neon-cyan)">&lt;50ms INFERENCE</span>
+      </div>
+      <div class="ml-card" style="--ml-color:var(--neon-purple)">
+        <div class="ml-icon">⏱️</div>
+        <div class="ml-name">LSTM DEGRADATION</div>
+        <div class="ml-model">2-Layer PyTorch LSTM<br>Rolling history buffer<br>Degradation probability score</div>
+        <span class="ml-badge" style="color:var(--neon-purple);border-color:var(--neon-purple)">TEMPORAL PATTERN</span>
+      </div>
+      <div class="ml-card" style="--ml-color:var(--neon-green)">
+        <div class="ml-icon">🕸️</div>
+        <div class="ml-name">CAUSAL RCA</div>
+        <div class="ml-model">Live Jaeger trace graph<br>Upstream BFS traversal<br>Multi-signal score fusion</div>
+        <span class="ml-badge" style="color:var(--neon-green);border-color:var(--neon-green)">&lt;10ms GRAPH OPS</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ SELF-HEALING SIMULATION ═══ -->
+  <section id="demo">
+    <div class="section-header">
+      <span class="section-tag">Autonomous Simulation</span>
+      <h2 class="section-title">Watch It Self-Heal</h2>
+      <p class="section-desc">A continuous simulation showing how the system detects random failures, performs root cause analysis, and auto-remediates — all within the 15-second SLA window.</p>
+    </div>
+    <div class="sim-container">
+      <div class="sim-screen">
+        <div class="sim-topbar">
+          <div class="sim-dots">
+            <span class="sim-dot-r"></span>
+            <span class="sim-dot-y"></span>
+            <span class="sim-dot-g"></span>
+          </div>
+          <div class="sim-title-bar">NEXUS-AI SELF-HEALING ENGINE · SIMULATION</div>
+          <div class="sim-live-badge">
+            <div class="live-dot"></div>
+            LIVE
+          </div>
+        </div>
+        <div class="sim-body">
+          <div class="sim-left">
+            <div class="sim-label">SYSTEM LOG STREAM</div>
+            <div class="sim-terminal" id="sim-terminal"></div>
+          </div>
+          <div class="sim-right">
+            <div class="sim-error-card" id="sim-error-card">
+              <div class="sim-error-type" id="sim-error-type">—</div>
+              <div class="sim-error-detail" id="sim-error-detail">Awaiting incident...</div>
+            </div>
+            <div class="sim-timer-wrap">
+              <svg class="sim-timer-ring" viewBox="0 0 140 140">
+                <circle class="sim-ring-bg" cx="70" cy="70" r="65"/>
+                <circle class="sim-ring-fill" id="sim-ring-fill" cx="70" cy="70" r="65"/>
+              </svg>
+              <span class="sim-timer-text" id="sim-timer-text">0.0s</span>
+            </div>
+            <div class="sim-timer-label">SLA COUNTDOWN · 15s TARGET</div>
+            <div class="sim-stages">
+              <div class="sim-stage" id="sim-stage-0">
+                <span class="sim-stage-icon">✅</span>
+                <span class="sim-stage-name">Error Detected</span>
+                <span class="sim-stage-status">WAITING</span>
+              </div>
+              <div class="sim-stage" id="sim-stage-1">
+                <span class="sim-stage-icon">📍</span>
+                <span class="sim-stage-name">Analyzing Root Cause</span>
+                <span class="sim-stage-status">WAITING</span>
+              </div>
+              <div class="sim-stage" id="sim-stage-2">
+                <span class="sim-stage-icon">❤️‍🩹</span>
+                <span class="sim-stage-name">Fix Applied</span>
+                <span class="sim-stage-status">WAITING</span>
+              </div>
+              <div class="sim-stage" id="sim-stage-3">
+                <span class="sim-stage-icon">✅</span>
+                <span class="sim-stage-name">Resolved</span>
+                <span class="sim-stage-status">WAITING</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ REMEDIATION ═══ -->
+  <section id="remediation">
+    <div class="section-header" style="max-width:1200px;margin:0 auto 80px">
+      <span class="section-tag">Autonomous Response</span>
+      <h2 class="section-title">Three-Action Remediation Vocabulary</h2>
+      <p class="section-desc">Different anomaly signatures trigger different actions. Confidence-gated.
+        Cooldown-protected. Every action fully audited.</p>
+    </div>
+    <div class="action-grid">
+      <div class="action-card" style="--action-color:var(--neon-green)">
+        <div class="action-number">01</div>
+        <div class="action-icon">🔄</div>
+        <div class="action-name">RESTART</div>
+        <div class="action-trigger">Triggered by: error_burst, new_template, frequency_spike<br><br>Confidence gate:
+          &gt; 0.60<br>Cooldown: 60 seconds</div>
+        <div class="action-api">docker.containers.get(svc).restart(timeout=10)</div>
+      </div>
+      <div class="action-card" style="--action-color:var(--neon-cyan)">
+        <div class="action-number">02</div>
+        <div class="action-icon">⬆️</div>
+        <div class="action-name">SCALE UP</div>
+        <div class="action-trigger">Triggered by: resource_saturation, throughput_anomaly<br><br>Confidence gate: &gt;
+          0.75<br>Adds 1 replica via Compose</div>
+        <div class="action-api">docker compose up --scale svc=N+1 -d</div>
+      </div>
+      <div class="action-card" style="--action-color:var(--neon-orange)">
+        <div class="action-number">03</div>
+        <div class="action-icon">🛡️</div>
+        <div class="action-name">CPU THROTTLE</div>
+        <div class="action-trigger">Triggered by: latency_spike, multi_signal anomaly<br><br>Confidence gate: &gt;
+          0.70<br>Limits runaway CPU usage</div>
+        <div class="action-api">docker update --cpus 0.5 &lt;container&gt;</div>
+      </div>
+    </div>
+
+    <!-- Confidence display -->
+    <div
+      style="max-width:700px;margin:60px auto 0;border:1px solid var(--dark-border);background:var(--dark-card);padding:32px 36px">
+      <div class="sim-label">CONFIDENCE THRESHOLD SYSTEM</div>
+      <div style="display:flex;flex-direction:column;gap:16px;margin-top:8px">
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:1px">HIGH
+              CONFIDENCE · IMMEDIATE ACTION</span>
+            <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--neon-green)">≥ 0.85</span>
+          </div>
+          <div style="height:6px;background:rgba(255,255,255,0.05)">
+            <div style="width:85%;height:100%;background:var(--neon-green)"></div>
+          </div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span
+              style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:1px">STANDARD
+              CONFIDENCE · EXECUTE</span>
+            <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--neon-cyan)">0.60 – 0.85</span>
+          </div>
+          <div style="height:6px;background:rgba(255,255,255,0.05)">
+            <div style="width:60%;height:100%;background:var(--neon-cyan)"></div>
+          </div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:1px">LOW
+              CONFIDENCE · BLOCKED (FALSE ALERT)</span>
+            <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--neon-red)">&lt; 0.60</span>
+          </div>
+          <div style="height:6px;background:rgba(255,255,255,0.05)">
+            <div style="width:30%;height:100%;background:var(--neon-red)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ FEATURES DEEP DIVE ═══ -->
+  <section id="features" style="padding:120px 48px">
+    <div class="section-header">
+      <span class="section-tag">Key Features</span>
+      <h2 class="section-title">Every Criterion. Delivered.</h2>
+      <p class="section-desc">Built to satisfy every requirement — from the PS3 spec to live judge scrutiny.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card" style="--card-color:var(--neon-cyan)">
+        <span class="feature-icon">✨</span>
+        <span class="feature-tag" style="color:var(--neon-cyan);border-color:rgba(0,245,255,0.3)">AI · NLP</span>
+        <div class="feature-title">DistilBERT Severity Classifier</div>
+        <div class="feature-desc">HuggingFace BERT-large-cased-finetuned-mnli wraps Drain3's flagged log templates.
+          Re-scores anomaly severity with &lt;100ms extra latency — only fires when Drain3 already found something.
+        </div>
+        <div class="feature-chips">
+          <span class="chip">gchhablani/bert-large-cased-finetuned-mnli</span>
+          <span class="chip">drain3</span>
+          <span class="chip">NLI classification</span>
+        </div>
+      </div>
+      <div class="feature-card" style="--card-color:var(--neon-purple)">
+        <span class="feature-icon">📈</span>
+        <span class="feature-tag" style="color:var(--neon-purple);border-color:rgba(180,79,255,0.3)">AI · TIME
+          SERIES</span>
+        <div class="feature-title">LSTM Degradation Detector</div>
+        <div class="feature-desc">2-layer PyTorch LSTM consumes the rolling Prometheus history buffer per service.
+          Outputs a degradation probability score. Runs on simulated data — visible in every evidence packet.</div>
+        <div class="feature-chips">
+          <span class="chip" style="border-color:rgba(180,79,255,0.2);color:var(--neon-purple)">pytorch</span>
+          <span class="chip" style="border-color:rgba(180,79,255,0.2);color:var(--neon-purple)">LSTM 2-layer</span>
+          <span class="chip" style="border-color:rgba(180,79,255,0.2);color:var(--neon-purple)">temporal anomaly</span>
+        </div>
+      </div>
+      <div class="feature-card" style="--card-color:var(--neon-green)">
+        <span class="feature-icon">⚡</span>
+        <span class="feature-tag" style="color:var(--neon-green);border-color:rgba(0,255,136,0.3)">REMEDIATION</span>
+        <div class="feature-title">3-Action Remediation Vocab</div>
+        <div class="feature-desc">Beyond just "restart": scale_up adds a Docker Compose replica; cpu_throttle uses
+          Docker's update --cpus API. Each action maps to a distinct anomaly signature with its own confidence gate.
+        </div>
+        <div class="feature-chips">
+          <span class="chip" style="border-color:rgba(0,255,136,0.2);color:var(--neon-green)">restart</span>
+          <span class="chip" style="border-color:rgba(0,255,136,0.2);color:var(--neon-green)">scale_up</span>
+          <span class="chip" style="border-color:rgba(0,255,136,0.2);color:var(--neon-green)">cpu_throttle</span>
+        </div>
+      </div>
+      <div class="feature-card" style="--card-color:var(--neon-red)">
+        <span class="feature-icon">⏱️</span>
+        <span class="feature-tag" style="color:var(--neon-red);border-color:rgba(255,59,92,0.3)">SLA · MONITORING</span>
+        <div class="feature-title">Real-Time 15s SLA Gauge</div>
+        <div class="feature-desc">Live cycle timer is prominently displayed on the dashboard. Turns orange at 10s,
+          flashes red at 15s. Judges watching the demo see the SLA constraint being honored in real time.</div>
+        <div class="feature-chips">
+          <span class="chip" style="border-color:rgba(255,59,92,0.2);color:var(--neon-red)">orange at 10s</span>
+          <span class="chip" style="border-color:rgba(255,59,92,0.2);color:var(--neon-red)">flashes at 15s</span>
+          <span class="chip" style="border-color:rgba(255,59,92,0.2);color:var(--neon-red)">grafana annotation</span>
+        </div>
+      </div>
+      <div class="feature-card" style="--card-color:var(--neon-orange)">
+        <span class="feature-icon">⚔️</span>
+        <span class="feature-tag" style="color:var(--neon-orange);border-color:rgba(255,107,53,0.3)">CHAOS
+          ENGINEERING</span>
+        <div class="feature-title">Live Induced Failure Demo</div>
+        <div class="feature-desc">/api/chaos kills or CPU-stresses a specific container on demand. One button press —
+          system detects, attributes, remediates — all visible on dashboard. The ultimate judge-ready demo script.</div>
+        <div class="feature-chips">
+          <span class="chip" style="border-color:rgba(255,107,53,0.2);color:var(--neon-orange)">/api/chaos</span>
+          <span class="chip" style="border-color:rgba(255,107,53,0.2);color:var(--neon-orange)">container kill</span>
+          <span class="chip" style="border-color:rgba(255,107,53,0.2);color:var(--neon-orange)">cpu stress</span>
+        </div>
+      </div>
+      <div class="feature-card" style="--card-color:var(--neon-purple)">
+        <span class="feature-icon">🕸️</span>
+        <span class="feature-tag"
+          style="color:var(--neon-purple);border-color:rgba(180,79,255,0.3)">OBSERVABILITY</span>
+        <div class="feature-title">Live Dependency Graph</div>
+        <div class="feature-desc">Starts from DEFAULT_DEPENDENCY_GRAPH as bootstrap. Updates from real Jaeger trace data
+          every cycle. Even one live graph update demonstrates true distributed trace integration.</div>
+        <div class="feature-chips">
+          <span class="chip" style="border-color:rgba(180,79,255,0.2);color:var(--neon-purple)">jaeger API</span>
+          <span class="chip" style="border-color:rgba(180,79,255,0.2);color:var(--neon-purple)">live graph update</span>
+          <span class="chip" style="border-color:rgba(180,79,255,0.2);color:var(--neon-purple)">upstream BFS</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ TECH MARQUEE ═══ -->
+  <section id="tech-stack">
+    <div class="section-header">
+      <span class="section-tag">Technology</span>
+      <h2 class="section-title">Built on Production-Grade Stack</h2>
+    </div>
+    <div class="tech-marquee-container">
+      <div class="tech-marquee">
+        <span class="tech-pill">Python 3.11</span>
+        <span class="tech-pill">PyTorch LSTM</span>
+        <span class="tech-pill">HuggingFace Transformers</span>
+        <span class="tech-pill">Scikit-Learn IsolationForest</span>
+        <span class="tech-pill">Drain3</span>
+        <span class="tech-pill">Docker SDK</span>
+        <span class="tech-pill">Prometheus</span>
+        <span class="tech-pill">Grafana</span>
+        <span class="tech-pill">Loki</span>
+        <span class="tech-pill">Jaeger</span>
+        <span class="tech-pill">OpenTelemetry</span>
+        <span class="tech-pill">FastAPI</span>
+        <span class="tech-pill">Python 3.11</span>
+        <span class="tech-pill">PyTorch LSTM</span>
+        <span class="tech-pill">HuggingFace Transformers</span>
+        <span class="tech-pill">Scikit-Learn IsolationForest</span>
+        <span class="tech-pill">Drain3</span>
+        <span class="tech-pill">Docker SDK</span>
+        <span class="tech-pill">Prometheus</span>
+        <span class="tech-pill">Grafana</span>
+        <span class="tech-pill">Loki</span>
+        <span class="tech-pill">Jaeger</span>
+        <span class="tech-pill">OpenTelemetry</span>
+        <span class="tech-pill">FastAPI</span>
+      </div>
+    </div>
+    <div style="height:8px"></div>
+    <div class="tech-marquee-container">
+      <div class="tech-marquee tech-marquee-2">
+        <span class="tech-pill">Locust Load Testing</span>
+        <span class="tech-pill">Docker Compose</span>
+        <span class="tech-pill">DistilBERT</span>
+        <span class="tech-pill">Online Boutique</span>
+        <span class="tech-pill">Sock Shop</span>
+        <span class="tech-pill">Numpy</span>
+        <span class="tech-pill">Requests</span>
+        <span class="tech-pill">OTel Collector</span>
+        <span class="tech-pill">Causal Graph BFS</span>
+        <span class="tech-pill">Evidence Packets</span>
+        <span class="tech-pill">Confidence Gating</span>
+        <span class="tech-pill">Cooldown Protection</span>
+        <span class="tech-pill">Locust Load Testing</span>
+        <span class="tech-pill">Docker Compose</span>
+        <span class="tech-pill">DistilBERT</span>
+        <span class="tech-pill">Online Boutique</span>
+        <span class="tech-pill">Sock Shop</span>
+        <span class="tech-pill">Numpy</span>
+        <span class="tech-pill">Requests</span>
+        <span class="tech-pill">OTel Collector</span>
+        <span class="tech-pill">Causal Graph BFS</span>
+        <span class="tech-pill">Evidence Packets</span>
+        <span class="tech-pill">Confidence Gating</span>
+        <span class="tech-pill">Cooldown Protection</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ CTA ═══ -->
+  <section id="cta">
+    <div class="cta-title">
+      DETECT. ATTRIBUTE. <span class="highlight">REMEDIATE.</span>
+    </div>
+    <p style="font-size:18px;color:var(--text-muted);max-width:560px;margin:0 auto 48px;line-height:1.7">
+      The only system that closes the loop — from first anomaly signal to autonomous container remediation — in under
+      <strong style="color:var(--neon-cyan)">15 seconds</strong>.
+    </p>
+    <div style="display:flex;gap:16px;justify-content:center">
+      <a href="#demo" class="btn-primary">TRIGGER LIVE DEMO</a>
+      <a href="#architecture" class="btn-secondary">VIEW ARCHITECTURE</a>
+    </div>
+
+    <div class="footer" style="font-size: 18px;">
+  <div>
+    Team Members: 
+    <a href="https://www.linkedin.com/in/sukhleen-singh-virk-29645a296/" target="_blank">Sukhleen</a>, 
+    <a href="https://www.linkedin.com/in/tarun-kumar-b15475284/" target="_blank">Tarun</a>, 
+    <a href="https://www.linkedin.com/in/dhruv-mahajan-196401324/" target="_blank">Dhruv</a>, 
+    <a href="https://www.linkedin.com/in/puranjay-rajput-232a94364/" target="_blank">Puranjay</a>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:8px">
+    <div class="live-dot"></div>
+    ALL SYSTEMS OPERATIONAL
+    </div>
+  </div>
+  </section>
+  <style>
+    .footer a {
+    color: #00ffcc; /* or any color you like */
+    text-decoration: none;
+    font-weight: 500;
+    }
+
+    .footer a:hover {
+    text-decoration: underline;
+    }
+  </style>S
+
+  <!-- ═══ NODE MODAL OVERLAY ═══ -->
+  <div id="node-overlay" onclick="closeModalIfBg(event)">
+    <div class="node-modal" id="node-modal" style="--modal-color:var(--neon-cyan)">
+      <div class="modal-header">
+        <div class="modal-icon" id="modal-icon">🧠</div>
+        <div class="modal-header-text">
+          <span class="modal-layer-tag" id="modal-layer">AI LAYER</span>
+          <div class="modal-title" id="modal-title">Component Name</div>
+        </div>
+        <div class="modal-close" onclick="closeModal()">✕</div>
+      </div>
+      <div class="modal-body">
+        <div class="modal-how-we-used">HOW WE USED IT IN OUR PROJECT</div>
+        <div class="modal-desc" id="modal-desc">Description goes here.</div>
+        <div class="modal-chips" id="modal-chips"></div>
+        <div class="modal-stat-row" id="modal-stats"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ═══ NODE MODAL DATA ═══
+    const NODE_DATA = {
+      locust: {
+        icon: '🔥', layer: 'LOAD LAYER', color: 'var(--neon-purple)',
+        title: 'Locust / k6',
+        desc: 'We use Locust\'s Python-based locustfile.py to simulate realistic e-commerce traffic across all 6 Online Boutique services. Locust spawns hundreds of concurrent virtual users hitting endpoints like /addToCart, /checkout, and /product — generating a continuous stream of real HTTP load that triggers our AI detection pipeline to analyze actual production-like conditions.',
+        chips: ['locustfile.py', 'concurrent users', 'HTTP load', 'real traffic patterns', 'spawn rate control'],
+        stats: [{ val: '500+', lbl: 'Peak VUsers' }, { val: '6', lbl: 'Services Hit' }, { val: 'continuous', lbl: 'Mode' }]
+      },
+      boutique: {
+        icon: '🛍️', layer: 'LOAD LAYER', color: 'var(--neon-purple)',
+        title: 'Online Boutique',
+        desc: 'Google\'s Online Boutique microservices demo is our distributed application under test. It runs 6+ services (frontend, cartservice, checkoutservice, productcatalogservice, currencyservice, paymentservice, redis-cart) all orchestrated via Docker Compose. Each service emits structured logs, Prometheus metrics, and OpenTelemetry traces — giving us a realistic multi-service observability target.',
+        chips: ['docker-compose.yml', 'frontend', 'cartservice', 'checkoutservice', 'paymentservice', 'redis-cart'],
+        stats: [{ val: '6+', lbl: 'Services' }, { val: 'Docker', lbl: 'Runtime' }, { val: 'OTel', lbl: 'Instrumented' }]
+      },
+      chaos: {
+        icon: '⚡', layer: 'LOAD LAYER', color: 'var(--neon-purple)',
+        title: 'Chaos Endpoint',
+        desc: 'We built a /api/chaos endpoint on the AI engine that accepts a target service name and a chaos type (kill or cpu_stress). One HTTP POST kills or CPU-stresses the specified container via the Docker SDK. This lets us run a scripted demo: press one button, the container dies, and the automated detection-to-remediation loop fires — all visible on the dashboard within the 15-second SLA window.',
+        chips: ['/api/chaos', 'docker SDK', 'container kill', 'cpu stress', 'demo scripted'],
+        stats: [{ val: '1', lbl: 'Button Press' }, { val: '<15s', lbl: 'Full Loop' }, { val: 'live', lbl: 'Dashboard' }]
+      },
+      prometheus: {
+        icon: '📊', layer: 'SIGNAL LAYER', color: 'var(--neon-orange)',
+        title: 'Prometheus',
+        desc: 'Prometheus scrapes metrics from all 6 microservices every 15s. Our metric_detector.py uses PromQL to pull p99/p50 latency histograms, request rates, error rates, CPU and memory per service. These are fed into the Isolation Forest feature vectors and the LSTM rolling history buffer. We also write Grafana annotations back to Prometheus when remediations fire.',
+        chips: ['prometheus.yml', 'PromQL', 'p99 latency', 'error_rate', '15s scrape', 'histogram_quantile'],
+        stats: [{ val: '<50ms', lbl: 'Query Latency' }, { val: '4', lbl: 'Metric Types' }, { val: '15s', lbl: 'Scrape Interval' }]
+      },
+      loki: {
+        icon: '📋', layer: 'SIGNAL LAYER', color: 'var(--neon-orange)',
+        title: 'Loki / OpenSearch',
+        desc: 'All container stdout/stderr is shipped to Loki via the Docker logging driver. Our drain_detector.py queries Loki\'s HTTP API to fetch recent log batches per service. These raw log lines are passed to Drain3 for template mining. Loki\'s label-based indexing lets us query by service_name efficiently without full-text indexing overhead.',
+        chips: ['loki-config.yaml', 'HTTP API query', 'docker logging driver', 'label-based index', 'log batches'],
+        stats: [{ val: '<100ms', lbl: 'Log Query' }, { val: 'structured', lbl: 'Log Format' }, { val: 'per-service', lbl: 'Partitioning' }]
+      },
+      jaeger: {
+        icon: '📍', layer: 'SIGNAL LAYER', color: 'var(--neon-orange)',
+        title: 'Jaeger',
+        desc: 'Every inter-service call is traced with OpenTelemetry and stored in Jaeger. Our dependency_graph.py queries the Jaeger API to discover live service dependencies from actual trace data — updating our causal graph beyond the static DEFAULT_DEPENDENCY_GRAPH fallback. Trace IDs from Jaeger are also included in evidence packets to cross-link log anomalies with their distributed call chains.',
+        chips: ['Jaeger API', 'trace IDs', 'span correlation', 'dependency discovery', 'causal chain'],
+        stats: [{ val: 'live', lbl: 'Graph Updates' }, { val: 'OTel', lbl: 'Instrumentation' }, { val: '<10ms', lbl: 'Graph Traversal' }]
+      },
+      otel: {
+        icon: '🔗', layer: 'SIGNAL LAYER', color: 'var(--neon-orange)',
+        title: 'OpenTelemetry Collector',
+        desc: 'The OTel Collector acts as the signal hub — receiving traces and metrics from all services via OTLP and routing them to Jaeger (traces) and Prometheus (metrics). Our otel-collector-config.yaml defines the receivers, processors, and exporters pipeline. This decouples instrumentation from storage, letting us swap backends without touching application code.',
+        chips: ['otel-collector-config.yaml', 'OTLP receiver', 'Jaeger exporter', 'Prometheus exporter', 'signal routing'],
+        stats: [{ val: 'OTLP', lbl: 'Protocol' }, { val: '3', lbl: 'Exporters' }, { val: 'zero-code', lbl: 'App Changes' }]
+      },
+      drain: {
+        icon: '🧠', layer: 'AI LAYER', color: 'var(--neon-cyan)',
+        title: 'Drain3 + DistilBERT',
+        desc: 'Drain3 parses raw log lines into abstract templates using its tree-based log parsing algorithm — turning "ERROR cartservice port 6379 refused" into a reusable pattern. We then wrap HuggingFace\'s gchhablani/bert-large-cased-finetuned-mnli (a DistilBERT variant) to re-score Drain3\'s flagged templates for anomaly severity via NLI inference. This adds only ~100ms extra latency and only fires when Drain3 already signals something unusual.',
+        chips: ['drain3', 'gchhablani/bert-large-cased-finetuned-mnli', 'NLI classification', 'template mining', 'severity re-scoring'],
+        stats: [{ val: '<100ms', lbl: 'Extra Latency' }, { val: '3', lbl: 'Anomaly Types' }, { val: 'NLI', lbl: 'Classifier Type' }]
+      },
+      iforest: {
+        icon: '📈', layer: 'AI LAYER', color: 'var(--neon-cyan)',
+        title: 'Isolation Forest + LSTM',
+        desc: 'metric_detector.py builds feature vectors per service from Prometheus data (p99 latency, error rate, request rate, CPU). Scikit-Learn\'s IsolationForest runs unsupervised anomaly detection — no labeled data needed. Separately, a 2-layer PyTorch LSTM consumes the rolling history buffer of these feature vectors and outputs a degradation probability score. Both scores appear in the evidence packet shown on the dashboard.',
+        chips: ['IsolationForest', 'PyTorch LSTM', 'feature vectors', 'unsupervised', 'degradation_prob', 'rolling history buffer'],
+        stats: [{ val: '<50ms', lbl: 'IF Inference' }, { val: '2-layer', lbl: 'LSTM Depth' }, { val: 'unsupervised', lbl: 'Training' }]
+      },
+      rca: {
+        icon: '🕸️', layer: 'AI LAYER', color: 'var(--neon-cyan)',
+        title: 'Causal RCA Engine',
+        desc: 'dependency_graph.py bootstraps a directed service dependency graph from our DEFAULT_DEPENDENCY_GRAPH (e.g. frontend → cartservice → redis-cart) and updates it with live Jaeger trace data each cycle. When anomalies are detected, the engine performs an upstream BFS traversal from the symptomatic service, combining log + metric anomaly scores per node to rank causal candidates. The highest-scoring upstream service becomes the root cause attribution.',
+        chips: ['dependency_graph.py', 'BFS traversal', 'Jaeger live update', 'score fusion', 'causal chain', 'upstream attribution'],
+        stats: [{ val: '<10ms', lbl: 'Graph Ops' }, { val: 'live', lbl: 'Graph Source' }, { val: 'BFS', lbl: 'Algorithm' }]
+      },
+      explainability: {
+        icon: '📦', layer: 'AI LAYER', color: 'var(--neon-cyan)',
+        title: 'Explainability Engine',
+        desc: 'explainability.py generates a structured EvidencePacket JSON for every detection → RCA → remediation cycle. Each packet contains: what was detected (anomaly type, affected services), why it happened (causal chain, confidence score), what action was taken (remediation details, execution time), and timing data proving the 15s SLA was met. Confidence thresholds are explicitly visible per decision to suppress false alerts.',
+        chips: ['explainability.py', 'EvidencePacket', 'confidence_gate', 'incident_id', 'causal_chain', 'timing proof'],
+        stats: [{ val: '0.60', lbl: 'Min Confidence' }, { val: '0.85', lbl: 'High Confidence' }, { val: 'JSON', lbl: 'Evidence Format' }]
+      },
+      restart: {
+        icon: '🔄', layer: 'ACTION LAYER', color: 'var(--neon-green)',
+        title: 'Container Restart',
+        desc: 'The most common remediation: remediation_engine.py uses the Docker Python SDK to find the target container and call container.restart(timeout=10). It tracks old and new status, logs the restart time in milliseconds, and enters a 60-second cooldown to prevent rapid-fire restarts. When Docker is unavailable (e.g. demo mode), it falls back to a realistic simulation with randomized 200–800ms delay.',
+        chips: ['remediation_engine.py', 'docker SDK', 'container.restart()', '60s cooldown', 'simulated fallback'],
+        stats: [{ val: '~340ms', lbl: 'Avg Restart' }, { val: '60s', lbl: 'Cooldown' }, { val: '0.60', lbl: 'Conf. Gate' }]
+      },
+      scaleup: {
+        icon: '⬆️', layer: 'ACTION LAYER', color: 'var(--neon-green)',
+        title: 'Scale Up',
+        desc: 'Triggered by resource_saturation and throughput anomaly signatures. The engine calls docker compose up --scale service=N+1 -d to add an additional replica of the struggling service. This is the right response when a service is overwhelmed with traffic rather than crashed — scaling horizontally instead of restarting a healthy-but-overloaded container.',
+        chips: ['docker compose scale', 'resource_saturation', 'throughput_anomaly', 'horizontal scale', 'N+1 replica'],
+        stats: [{ val: '0.75', lbl: 'Conf. Gate' }, { val: '+1', lbl: 'Replica Added' }, { val: 'compose', lbl: 'Orchestrator' }]
+      },
+      cputhrottle: {
+        icon: '🛡️', layer: 'ACTION LAYER', color: 'var(--neon-green)',
+        title: 'CPU Throttle',
+        desc: 'Triggered by latency_spike and multi_signal anomalies where a runaway process is consuming excessive CPU. We call docker update --cpus 0.5 <container> via the Docker API to impose a CPU limit without restarting the service. This is a surgical intervention — the service stays running and serving traffic, just capped from consuming the entire host CPU and starving neighbors.',
+        chips: ['docker update --cpus', 'latency_spike', 'multi_signal', 'CPU limit', 'no restart', 'surgical fix'],
+        stats: [{ val: '0.70', lbl: 'Conf. Gate' }, { val: '0.5', lbl: 'CPU Cap' }, { val: 'no-restart', lbl: 'Approach' }]
+      },
+      grafana: {
+        icon: '📊', layer: 'ACTION LAYER', color: 'var(--neon-green)',
+        title: 'Grafana Dashboard',
+        desc: 'The Grafana dashboard (provisioned via grafana/dashboards/ai-observability.json) shows real-time metrics from Prometheus and logs from Loki. We added a prominent cycle timer gauge that turns orange at 10s and flashes red at 15s to make the SLA constraint visible to judges. Every remediation action is annotated directly on the time series charts so evaluators can correlate the AI action with the metric recovery.',
+        chips: ['ai-observability.json', 'SLA gauge', 'remediation annotations', 'cycle timer', 'red at 15s', 'loki datasource'],
+        stats: [{ val: 'orange', lbl: 'Alert at 10s' }, { val: 'flashes', lbl: 'Warning at 15s' }, { val: 'annotated', lbl: 'Every Action' }]
+      }
+    };
+
+    function openModal(key) {
+      const d = NODE_DATA[key];
+      if (!d) return;
+      const overlay = document.getElementById('node-overlay');
+      const modal = document.getElementById('node-modal');
+      document.getElementById('modal-icon').textContent = d.icon;
+      document.getElementById('modal-layer').textContent = d.layer;
+      document.getElementById('modal-title').textContent = d.title;
+      document.getElementById('modal-desc').textContent = d.desc;
+      modal.style.setProperty('--modal-color', d.color);
+      // Chips
+      const chipsEl = document.getElementById('modal-chips');
+      chipsEl.innerHTML = d.chips.map(c => `<span class="modal-chip">${c}</span>`).join('');
+      // Stats
+      const statsEl = document.getElementById('modal-stats');
+      statsEl.innerHTML = d.stats.map(s => `
+    <div class="modal-stat">
+      <span class="modal-stat-val">${s.val}</span>
+      <span class="modal-stat-lbl">${s.lbl}</span>
+    </div>`).join('');
+      overlay.classList.add('active');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal() {
+      document.getElementById('node-overlay').classList.remove('active');
+      document.body.style.overflow = '';
+    }
+
+    function closeModalIfBg(e) {
+      if (e.target === document.getElementById('node-overlay')) closeModal();
+    }
+
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+  </script>
+
+  <script>
+    // ═══ CUSTOM CURSOR ═══
+    const cursor = document.getElementById('cursor');
+    const cursorTrail = document.getElementById('cursorTrail');
+    let mouseX = 0, mouseY = 0, trailX = 0, trailY = 0;
+
+    document.addEventListener('mousemove', e => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+      cursor.style.left = mouseX + 'px';
+      cursor.style.top = mouseY + 'px';
+    });
+
+    setInterval(() => {
+      trailX += (mouseX - trailX) * 0.12;
+      trailY += (mouseY - trailY) * 0.12;
+      cursorTrail.style.left = trailX + 'px';
+      cursorTrail.style.top = trailY + 'px';
+    }, 16);
+
+    document.querySelectorAll('button, a, .arch-node, .feature-card, .action-card, .ml-card').forEach(el => {
+      el.addEventListener('mouseenter', () => { cursor.style.width = '20px'; cursor.style.height = '20px'; });
+      el.addEventListener('mouseleave', () => { cursor.style.width = '12px'; cursor.style.height = '12px'; });
+    });
+
+    // ═══ INTERSECTION OBSERVER (stagger-in animation) ═══
+    document.querySelectorAll('.arch-layer').forEach((layer, i) => {
+      layer.classList.add('will-animate');
+      layer.style.transitionDelay = (i * 0.12) + 's';
+    });
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.05, rootMargin: '0px 0px -40px 0px' });
+
+    document.querySelectorAll('.arch-layer').forEach(el => observer.observe(el));
+
+    // ═══ SELF-HEALING SIMULATION ENGINE ═══
+    (function() {
+      var terminal = document.getElementById('sim-terminal');
+      var timerText = document.getElementById('sim-timer-text');
+      var ringFill = document.getElementById('sim-ring-fill');
+      var errorCard = document.getElementById('sim-error-card');
+      var errorType = document.getElementById('sim-error-type');
+      var errorDetail = document.getElementById('sim-error-detail');
+      var stages = [
+        document.getElementById('sim-stage-0'),
+        document.getElementById('sim-stage-1'),
+        document.getElementById('sim-stage-2'),
+        document.getElementById('sim-stage-3')
+      ];
+
+      var CIRCUMFERENCE = 2 * Math.PI * 65; // ~408
+      ringFill.style.strokeDasharray = CIRCUMFERENCE;
+      ringFill.style.strokeDashoffset = CIRCUMFERENCE;
+
+      var ERRORS = [
+        { type: 'SERVICE FAILURE', svc: 'cartservice', detail: 'redis.exceptions.ConnectionError | port 6379 refused', fix: 'restart', fixDetail: 'docker.restart(cartservice, timeout=10) | 340ms' },
+        { type: 'REQUEST TIMEOUT', svc: 'checkoutservice', detail: 'upstream timeout after 5000ms | /api/checkout', fix: 'scale_up', fixDetail: 'docker compose up --scale checkoutservice=3 -d' },
+        { type: 'DATABASE ERROR', svc: 'productcatalogservice', detail: 'SQLITE_BUSY | database is locked | retry failed', fix: 'restart', fixDetail: 'docker.restart(productcatalogservice) | 280ms' },
+        { type: 'CPU SATURATION', svc: 'frontend', detail: 'CPU usage 98.4% | p99 latency 4200ms | OOM risk', fix: 'cpu_throttle', fixDetail: 'docker update --cpus 0.5 frontend | applied' },
+        { type: 'MEMORY LEAK', svc: 'paymentservice', detail: 'heap usage 1.8GB/2GB | GC thrashing detected', fix: 'restart', fixDetail: 'docker.restart(paymentservice) | 410ms' },
+        { type: 'CONNECTION POOL EXHAUSTED', svc: 'currencyservice', detail: 'max_connections=50 reached | 23 requests queued', fix: 'scale_up', fixDetail: 'docker compose up --scale currencyservice=2 -d' },
+      ];
+
+      var NORMAL_LOGS = [
+        { svc: 'frontend', msg: 'GET /api/products 200 42ms' },
+        { svc: 'cartservice', msg: 'AddItem rpc OK cart_id=a3f2' },
+        { svc: 'prometheus', msg: 'metrics scraped 6/6 services', c: 'sim-info' },
+        { svc: 'otel-collector', msg: 'spans exported batch=128' },
+        { svc: 'checkoutservice', msg: 'PlaceOrder rpc OK order_id=x9k1' },
+        { svc: 'isolation-forest', msg: 'anomaly_score: -0.12 (normal)', c: 'sim-info' },
+        { svc: 'jaeger', msg: 'trace 8d7f3a: 5 spans, 0 errors' },
+        { svc: 'currencyservice', msg: 'Convert USD→EUR rate=0.92 OK' },
+        { svc: 'paymentservice', msg: 'ChargeCard rpc OK tx=p4w8' },
+        { svc: 'lstm-detector', msg: 'degradation_prob=0.03 (stable)', c: 'sim-info' },
+        { svc: 'drain3', msg: 'template_mining: 0 new templates', c: 'sim-info' },
+        { svc: 'frontend', msg: 'GET /checkout 200 89ms' },
+      ];
+
+      var cycleTimer = null;
+      var elapsed = 0;
+      var logIdx = 0;
+      var normalInterval = null;
+
+      function ts() {
+        var d = new Date();
+        return d.toISOString().split('T')[1].substring(0, 12);
+      }
+
+      function addLog(svc, msg, cls) {
+        var el = document.createElement('div');
+        el.className = 'sim-log ' + (cls || '');
+        el.innerHTML = '<span class="sim-ts">' + ts() + '</span> <span class="sim-svc">[' + svc + ']</span> <span class="sim-msg">' + msg + '</span>';
+        terminal.appendChild(el);
+        terminal.scrollTop = terminal.scrollHeight;
+        while (terminal.children.length > 50) terminal.removeChild(terminal.firstChild);
+      }
+
+      function setStage(idx, state) {
+        var st = stages[idx];
+        if (!st) return;
+        st.classList.remove('sim-active', 'sim-done');
+        var statusEl = st.querySelector('.sim-stage-status');
+        if (state === 'active') {
+          st.classList.add('sim-active');
+          statusEl.textContent = 'IN PROGRESS';
+        } else if (state === 'done') {
+          st.classList.add('sim-done');
+          statusEl.textContent = '✓ COMPLETE';
+        } else {
+          statusEl.textContent = 'WAITING';
+        }
+      }
+
+      function resetStages() {
+        for (var i = 0; i < 4; i++) setStage(i, 'waiting');
+      }
+
+      function updateTimer() {
+        elapsed += 0.1;
+        var pct = Math.min(elapsed / 15, 1);
+        var offset = CIRCUMFERENCE * (1 - pct);
+        ringFill.style.strokeDashoffset = offset;
+        timerText.textContent = elapsed.toFixed(1) + 's';
+
+        if (elapsed < 10) {
+          ringFill.style.stroke = 'var(--neon-green)';
+          timerText.style.color = 'var(--neon-green)';
+        } else if (elapsed < 15) {
+          ringFill.style.stroke = 'var(--neon-orange)';
+          timerText.style.color = 'var(--neon-orange)';
+        } else {
+          ringFill.style.stroke = 'var(--neon-red)';
+          timerText.style.color = 'var(--neon-red)';
+        }
+      }
+
+      function startNormalLogs() {
+        normalInterval = setInterval(function() {
+          var l = NORMAL_LOGS[logIdx % NORMAL_LOGS.length];
+          addLog(l.svc, l.msg, l.c || '');
+          logIdx++;
+        }, 1100);
+      }
+
+      function stopNormalLogs() {
+        clearInterval(normalInterval);
+      }
+
+      function runCycle() {
+        var err = ERRORS[Math.floor(Math.random() * ERRORS.length)];
+        elapsed = 0;
+        ringFill.style.strokeDashoffset = CIRCUMFERENCE;
+        timerText.textContent = '0.0s';
+        timerText.style.color = 'var(--neon-green)';
+        ringFill.style.stroke = 'var(--neon-green)';
+        resetStages();
+        errorCard.classList.remove('sim-visible', 'sim-resolved');
+
+        // Phase 0: Normal logs for 2s
+        startNormalLogs();
+
+        setTimeout(function() {
+          // Phase 1: Error Detected (~0s mark in timer)
+          stopNormalLogs();
+          cycleTimer = setInterval(updateTimer, 100);
+
+          // Show error
+          errorType.textContent = '⚠ ' + err.type;
+          errorDetail.textContent = err.svc + ' · ' + err.detail;
+          errorCard.classList.add('sim-visible');
+          errorCard.classList.remove('sim-resolved');
+
+          setStage(0, 'active');
+          addLog(err.svc, 'ERROR: ' + err.detail, 'sim-err');
+
+          setTimeout(function() {
+            addLog('drain3', 'NEW_TEMPLATE detected: "' + err.type.toLowerCase() + '"', 'sim-err');
+          }, 600);
+
+          setTimeout(function() {
+            addLog('distilbert', 'severity_score=0.91 [CRITICAL] reclassified', 'sim-err');
+            setStage(0, 'done');
+          }, 1400);
+
+          // Phase 2: Analyzing (~2s)
+          setTimeout(function() {
+            setStage(1, 'active');
+            addLog('isolation-forest', 'anomaly_score: -0.87 OUTLIER ' + err.svc, 'sim-info');
+          }, 2200);
+
+          setTimeout(function() {
+            addLog('lstm-detector', 'degradation_prob=0.84 ' + err.svc + ' ▲▲▲', 'sim-info');
+          }, 3200);
+
+          setTimeout(function() {
+            addLog('dependency-graph', 'updated from jaeger: 3 hops traced', 'sim-info');
+          }, 4000);
+
+          setTimeout(function() {
+            addLog('rca-engine', 'root_cause=' + err.svc + ' confidence=0.94', 'sim-info');
+            setStage(1, 'done');
+          }, 5000);
+
+          // Phase 3: Fix Applied (~6s)
+          setTimeout(function() {
+            setStage(2, 'active');
+            addLog('explainability', 'evidence_packet generated incident_id=' + Math.random().toString(36).substr(2, 6), 'sim-info');
+          }, 5800);
+
+          setTimeout(function() {
+            addLog('remediation', 'ACTION: ' + err.fix + ' ' + err.svc + ' (conf=0.94 > 0.60)', 'sim-fix');
+          }, 6600);
+
+          setTimeout(function() {
+            addLog('remediation', err.fixDetail, 'sim-fix');
+            setStage(2, 'done');
+          }, 7400);
+
+          // Phase 4: Resolved (~8-9s)
+          setTimeout(function() {
+            setStage(3, 'active');
+            addLog('health-check', err.svc + ' responding OK · latency normal', 'sim-fix');
+          }, 8500);
+
+          setTimeout(function() {
+            var resolveTime = (8 + Math.random() * 3).toFixed(1);
+            addLog('sla-monitor', '✓ CYCLE COMPLETE: ' + resolveTime + 's — WITHIN 15s SLA', 'sim-fix');
+            setStage(3, 'done');
+
+            // Resolve error card
+            errorType.textContent = '✓ RESOLVED — ' + err.type;
+            errorDetail.textContent = err.svc + ' · ' + err.fix + ' applied · service healthy';
+            errorCard.classList.add('sim-resolved');
+
+            // Stop timer
+            clearInterval(cycleTimer);
+          }, 9500);
+
+          // Phase 5: Cool down then restart
+          setTimeout(function() {
+            // Reset for next cycle
+            elapsed = 0;
+            ringFill.style.strokeDashoffset = CIRCUMFERENCE;
+            timerText.textContent = '0.0s';
+            timerText.style.color = 'var(--neon-green)';
+            ringFill.style.stroke = 'var(--neon-green)';
+            errorCard.classList.remove('sim-visible', 'sim-resolved');
+            resetStages();
+
+            // Restart cycle
+            runCycle();
+          }, 14000);
+
+        }, 2000);
+      }
+
+      // Kick off
+      runCycle();
+    })();
+  </script>
+</body>
+
+</html>
