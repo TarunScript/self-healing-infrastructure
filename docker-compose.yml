@@ -1,0 +1,567 @@
+# Full-stack AI Observability: Online Boutique + OTel + Loki/Prom/Jaeger + AI Engine
+# File: docker-compose.yml
+
+x-otel-env: &otel-env
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+  OTEL_RESOURCE_ATTRIBUTES: "service.namespace=online-boutique"
+  OTEL_TRACES_SAMPLER: "always_on"
+
+networks:
+  observability:
+    driver: bridge
+
+volumes:
+  loki-data:
+  prometheus-data:
+  grafana-data:
+  jaeger-data:
+
+services:
+
+  # ═══════════════════════════════════════════════════════
+  # OBSERVABILITY BACKENDS — start first, everything depends on these
+  # ═══════════════════════════════════════════════════════
+
+  redis-cart:
+    image: redis:7.2-alpine
+    container_name: redis-cart
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.2"
+          memory: 128M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:2.9.4
+    container_name: loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3100/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.49.1
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=2h"
+      - "--web.enable-lifecycle"
+      - "--web.enable-remote-write-receiver"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.54
+    container_name: jaeger
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "14250:14250"   # gRPC model
+      - "14268:14268"   # HTTP thrift
+      - "4319:4317"     # OTLP gRPC (remapped on host to avoid collision with otel-collector)
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      SPAN_STORAGE_TYPE: "memory"
+      MEMORY_MAX_TRACES: "10000"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:14269/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════
+  # OPENTELEMETRY COLLECTOR — starts after backends are healthy
+  # ═══════════════════════════════════════════════════════
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    platform: linux/amd64
+    container_name: otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+      - "8888:8888"     # Collector internal metrics
+      - "8889:8889"     # Prometheus scrape endpoint (span metrics)
+    depends_on:
+      loki:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      # otelcol-contrib is distroless (no shell/wget). Disable Docker healthcheck.
+      # The collector's own health_check extension on :13133 is still active internally.
+      disable: true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════
+  # ONLINE BOUTIQUE MICROSERVICES — start after otel-collector is healthy
+  # ═══════════════════════════════════════════════════════
+
+  adservice:
+    image: gcr.io/google-samples/microservices-demo/adservice:v0.10.1
+    platform: linux/amd64
+    container_name: adservice
+    environment:
+      <<: *otel-env
+      PORT: "9555"
+      COLLECTOR_SERVICE_ADDR: "otel-collector:4317"
+      ENABLE_TRACING: "1"
+      DISABLE_PROFILER: "1"
+      ENABLE_PROFILER: "0"
+      JAVA_TOOL_OPTIONS: "-Dcom.google.cloud.profiler.enabled=false"
+      OTEL_SERVICE_NAME: "adservice"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 512M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  cartservice:
+    image: gcr.io/google-samples/microservices-demo/cartservice:v0.10.1
+    platform: linux/amd64
+    container_name: cartservice
+    environment:
+      <<: *otel-env
+      REDIS_ADDR: "redis-cart:6379"
+      COLLECTOR_SERVICE_ADDR: "otel-collector:4317"
+      ENABLE_TRACING: "1"
+      DISABLE_PROFILER: "1"
+      OTEL_SERVICE_NAME: "cartservice"
+    depends_on:
+      redis-cart:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 256M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  productcatalogservice:
+    image: gcr.io/google-samples/microservices-demo/productcatalogservice:v0.10.1
+    platform: linux/amd64
+    container_name: productcatalogservice
+    environment:
+      <<: *otel-env
+      PORT: "3550"
+      COLLECTOR_SERVICE_ADDR: "otel-collector:4317"
+      ENABLE_TRACING: "1"
+      DISABLE_PROFILER: "1"
+      OTEL_SERVICE_NAME: "productcatalogservice"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 128M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  currencyservice:
+    image: gcr.io/google-samples/microservices-demo/currencyservice:v0.10.1
+    platform: linux/amd64
+    container_name: currencyservice
+    environment:
+      <<: *otel-env
+      PORT: "7000"
+      COLLECTOR_SERVICE_ADDR: "otel-collector:4317"
+      ENABLE_TRACING: "1"
+      DISABLE_PROFILER: "1"
+      OTEL_SERVICE_NAME: "currencyservice"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "0.2"
+          memory: 128M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  shippingservice:
+    image: gcr.io/google-samples/microservices-demo/shippingservice:v0.10.1
+    platform: linux/amd64
+    container_name: shippingservice
+    environment:
+      <<: *otel-env
+      PORT: "50051"
+      COLLECTOR_SERVICE_ADDR: "otel-collector:4317"
+      ENABLE_TRACING: "1"
+      DISABLE_PROFILER: "1"
+      OTEL_SERVICE_NAME: "shippingservice"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "0.2"
+          memory: 128M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  emailservice:
+    image: gcr.io/google-samples/microservices-demo/emailservice:v0.10.1
+    platform: linux/amd64
+    container_name: emailservice
+    environment:
+      <<: *otel-env
+      PORT: "8080"
+      COLLECTOR_SERVICE_ADDR: "otel-collector:4317"
+      ENABLE_TRACING: "1"
+      DISABLE_PROFILER: "1"
+      OTEL_SERVICE_NAME: "emailservice"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "0.2"
+          memory: 128M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  paymentservice:
+    image: gcr.io/google-samples/microservices-demo/paymentservice:v0.10.1
+    platform: linux/amd64
+    container_name: paymentservice
+    environment:
+      <<: *otel-env
+      PORT: "50051"
+      COLLECTOR_SERVICE_ADDR: "otel-collector:4317"
+      ENABLE_TRACING: "1"
+      DISABLE_PROFILER: "1"
+      OTEL_SERVICE_NAME: "paymentservice"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "0.2"
+          memory: 128M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  recommendationservice:
+    image: gcr.io/google-samples/microservices-demo/recommendationservice:v0.10.1
+    platform: linux/amd64
+    container_name: recommendationservice
+    environment:
+      <<: *otel-env
+      PORT: "8080"
+      PRODUCT_CATALOG_SERVICE_ADDR: "productcatalogservice:3550"
+      COLLECTOR_SERVICE_ADDR: "otel-collector:4317"
+      ENABLE_TRACING: "1"
+      DISABLE_PROFILER: "1"
+      OTEL_SERVICE_NAME: "recommendationservice"
+    depends_on:
+      productcatalogservice:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 256M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  checkoutservice:
+    image: gcr.io/google-samples/microservices-demo/checkoutservice:v0.10.1
+    platform: linux/amd64
+    container_name: checkoutservice
+    environment:
+      <<: *otel-env
+      PORT: "5050"
+      PRODUCT_CATALOG_SERVICE_ADDR: "productcatalogservice:3550"
+      CART_SERVICE_ADDR: "cartservice:7070"
+      CURRENCY_SERVICE_ADDR: "currencyservice:7000"
+      SHIPPING_SERVICE_ADDR: "shippingservice:50051"
+      EMAIL_SERVICE_ADDR: "emailservice:8080"
+      PAYMENT_SERVICE_ADDR: "paymentservice:50051"
+      COLLECTOR_SERVICE_ADDR: "otel-collector:4317"
+      ENABLE_TRACING: "1"
+      DISABLE_PROFILER: "1"
+      OTEL_SERVICE_NAME: "checkoutservice"
+    depends_on:
+      productcatalogservice:
+        condition: service_started
+      cartservice:
+        condition: service_started
+      currencyservice:
+        condition: service_started
+      shippingservice:
+        condition: service_started
+      emailservice:
+        condition: service_started
+      paymentservice:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 128M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  frontend:
+    image: gcr.io/google-samples/microservices-demo/frontend:v0.10.1
+    platform: linux/amd64
+    container_name: frontend
+    ports:
+      - "8080:8080"
+    environment:
+      <<: *otel-env
+      PORT: "8080"
+      PRODUCT_CATALOG_SERVICE_ADDR: "productcatalogservice:3550"
+      CURRENCY_SERVICE_ADDR: "currencyservice:7000"
+      CART_SERVICE_ADDR: "cartservice:7070"
+      RECOMMENDATION_SERVICE_ADDR: "recommendationservice:8080"
+      CHECKOUT_SERVICE_ADDR: "checkoutservice:5050"
+      SHIPPING_SERVICE_ADDR: "shippingservice:50051"
+      AD_SERVICE_ADDR: "adservice:9555"
+      COLLECTOR_SERVICE_ADDR: "otel-collector:4317"
+      ENABLE_TRACING: "1"
+      ENABLE_PROFILER: "0"
+      DISABLE_PROFILER: "1"
+      OTEL_SERVICE_NAME: "frontend"
+      SHOPPING_ASSISTANT_SERVICE_ADDR: "localhost:1234"
+    depends_on:
+      productcatalogservice:
+        condition: service_started
+      currencyservice:
+        condition: service_started
+      cartservice:
+        condition: service_started
+      recommendationservice:
+        condition: service_started
+      checkoutservice:
+        condition: service_started
+      shippingservice:
+        condition: service_started
+      adservice:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════
+  # AI ENGINE + GRAFANA + LOAD GENERATOR
+  # ═══════════════════════════════════════════════════════
+
+  grafana:
+    image: grafana/grafana:10.3.1
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/var/lib/grafana/dashboards/ai-observability.json"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  ai-engine:
+    ports:
+      - "8000:8000"
+    build:
+      context: ./ai_engine
+      dockerfile: Dockerfile
+    container_name: ai-engine
+    environment:
+      LOKI_URL: "http://loki:3100"
+      PROMETHEUS_URL: "http://prometheus:9090"
+      JAEGER_URL: "http://jaeger:16686"
+      GRAFANA_URL: "http://grafana:3000"
+      DOCKER_HOST: "unix:///var/run/docker.sock"
+      POLL_INTERVAL: "5"
+      LOG_LEVEL: "INFO"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./ai_engine:/app:rw
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+    depends_on:
+      loki:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+      grafana:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+    networks:
+      - observability
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.4
+    container_name: promtail
+    volumes:
+      - ./promtail/promtail-config.yaml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      loki:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.2"
+          memory: 128M
+    networks:
+      - observability
+    restart: unless-stopped
+
+  locust:
+    image: locustio/locust:2.23.1
+    container_name: locust
+    ports:
+      - "8089:8089"
+    volumes:
+      - ./locust/locustfile.py:/mnt/locust/locustfile.py:ro
+    command: >
+      -f /mnt/locust/locustfile.py
+      --host http://frontend:8080
+      --headless
+      --users 20
+      --spawn-rate 5
+      --run-time 0
+      --autostart
+    depends_on:
+      frontend:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 256M
+    networks:
+      - observability
+    restart: unless-stopped

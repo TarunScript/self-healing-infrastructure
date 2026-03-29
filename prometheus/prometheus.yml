@@ -1,0 +1,31 @@
+# Prometheus config — scrapes OTel collector metrics + self
+# File: prometheus/prometheus.yml
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+  scrape_timeout: 4s
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # OTel Collector internal metrics
+  - job_name: "otel-collector"
+    static_configs:
+      - targets: ["otel-collector:8888"]
+    metrics_path: /metrics
+
+  # OTel Collector exported metrics (from microservices)
+  - job_name: "otel-exported-metrics"
+    static_configs:
+      - targets: ["otel-collector:8889"]
+    metrics_path: /metrics
+
+  # AI engine — cycle time for Grafana budget panel
+  - job_name: "ai-engine"
+    static_configs:
+      - targets: ["ai-engine:8000"]
+    metrics_path: /metrics

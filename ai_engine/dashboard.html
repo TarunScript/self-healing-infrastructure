@@ -1,0 +1,1123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Observability Dashboard — Real-Time RCA</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-primary: #0a0e1a;
+    --bg-secondary: #111827;
+    --bg-card: rgba(17, 24, 39, 0.8);
+    --border: rgba(99, 102, 241, 0.2);
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --accent-blue: #6366f1;
+    --accent-cyan: #22d3ee;
+    --accent-green: #10b981;
+    --accent-red: #ef4444;
+    --accent-amber: #f59e0b;
+    --accent-purple: #a855f7;
+    --glow-blue: rgba(99, 102, 241, 0.3);
+    --glow-green: rgba(16, 185, 129, 0.3);
+    --glow-red: rgba(239, 68, 68, 0.3);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Animated background gradient */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(ellipse at 20% 50%, rgba(99,102,241,0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(34,211,238,0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 80%, rgba(168,85,247,0.05) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 20px 24px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    padding: 16px 24px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    backdrop-filter: blur(20px);
+  }
+
+  .header-left { display: flex; align-items: center; gap: 16px; }
+
+  .logo {
+    width: 44px; height: 44px;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    box-shadow: 0 4px 20px var(--glow-blue);
+  }
+
+  .header-title h1 {
+    font-size: 20px;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--text-primary), var(--accent-cyan));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .header-title p {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  .header-right { display: flex; align-items: center; gap: 20px; }
+
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .status-badge.running {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--accent-green);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+  }
+
+  .status-badge.stopped {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--accent-red);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+  }
+
+  .pulse {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--glow-green); }
+    50% { opacity: 0.6; box-shadow: 0 0 0 8px transparent; }
+  }
+
+  /* Timer */
+  .timer-display {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -1px;
+  }
+
+  .timer-display.pass { color: var(--accent-green); text-shadow: 0 0 20px var(--glow-green); }
+  .timer-display.fail { color: var(--accent-red); text-shadow: 0 0 20px var(--glow-red); }
+  .timer-display.neutral { color: var(--text-secondary); }
+
+  .timer-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    text-align: center;
+  }
+
+  /* Grid layout */
+  .grid {
+    display: grid;
+    gap: 16px;
+  }
+
+  .grid-top {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .grid-main {
+    grid-template-columns: 1fr 1fr;
+    margin-top: 16px;
+  }
+
+  .grid-bottom {
+    grid-template-columns: 1fr;
+    margin-top: 16px;
+  }
+
+  /* Cards */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    backdrop-filter: blur(20px);
+    transition: all 0.3s ease;
+  }
+
+  .card:hover {
+    border-color: rgba(99, 102, 241, 0.4);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .card-icon {
+    font-size: 18px;
+    opacity: 0.7;
+  }
+
+  /* Stat cards */
+  .stat-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 32px;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+
+  .stat-label {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .stat-value.green { color: var(--accent-green); }
+  .stat-value.red { color: var(--accent-red); }
+  .stat-value.blue { color: var(--accent-blue); }
+  .stat-value.amber { color: var(--accent-amber); }
+  .stat-value.cyan { color: var(--accent-cyan); }
+  .stat-value.purple { color: var(--accent-purple); }
+
+  /* RCA Panel */
+  .rca-chain {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 12px 0;
+  }
+
+  .rca-node {
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .rca-node.root {
+    background: linear-gradient(135deg, rgba(239,68,68,0.2), rgba(239,68,68,0.1));
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: var(--accent-red);
+  }
+
+  .rca-node.affected {
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: var(--accent-amber);
+  }
+
+  .rca-arrow {
+    color: var(--text-muted);
+    font-size: 18px;
+  }
+
+  .confidence-bar {
+    height: 6px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 3px;
+    margin-top: 12px;
+    overflow: hidden;
+  }
+
+  .confidence-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.8s ease;
+    background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan));
+  }
+
+  /* Incident list */
+  .incident-list {
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .incident-list::-webkit-scrollbar { width: 6px; }
+  .incident-list::-webkit-scrollbar-track { background: transparent; }
+  .incident-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .incident-item {
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .incident-item:hover {
+    background: rgba(99, 102, 241, 0.05);
+    border-color: rgba(99, 102, 241, 0.3);
+    transform: translateX(4px);
+  }
+
+  .incident-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+
+  .incident-id {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--accent-cyan);
+  }
+
+  .incident-time {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .incident-body {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .incident-service {
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  .incident-badge {
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .badge-pass {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--accent-green);
+  }
+
+  .badge-fail {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--accent-red);
+  }
+
+  /* Graph visualization */
+  .graph-container {
+    position: relative;
+    min-height: 350px;
+    overflow: hidden;
+  }
+
+  .graph-node {
+    position: absolute;
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    transition: all 0.5s ease;
+    cursor: default;
+    white-space: nowrap;
+  }
+
+  .graph-node.anomalous {
+    border-color: rgba(239, 68, 68, 0.6);
+    background: rgba(239, 68, 68, 0.1);
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+    animation: nodeGlow 2s ease-in-out infinite;
+  }
+
+  .graph-node.root-cause {
+    border-color: rgba(239, 68, 68, 0.8);
+    background: rgba(239, 68, 68, 0.2);
+    box-shadow: 0 0 30px rgba(239, 68, 68, 0.3);
+  }
+
+  @keyframes nodeGlow {
+    0%, 100% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.2); }
+    50% { box-shadow: 0 0 30px rgba(239, 68, 68, 0.4); }
+  }
+
+  /* Evidence modal */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(8px);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .modal-overlay.active { display: flex; }
+
+  .modal {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 28px;
+    max-width: 700px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+  }
+
+  .modal-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .modal-close {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 4px;
+  }
+
+  .modal-close:hover { color: var(--text-primary); }
+
+  .evidence-json {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: var(--accent-cyan);
+    line-height: 1.6;
+  }
+
+  /* Responsive */
+  @media (max-width: 1024px) {
+    .grid-top { grid-template-columns: repeat(2, 1fr); }
+    .grid-main { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 640px) {
+    .grid-top { grid-template-columns: 1fr; }
+    .header { flex-direction: column; gap: 12px; text-align: center; }
+    .header-right { justify-content: center; }
+  }
+
+  /* ── SLA Gauge ──────────────────────────────────────── */
+  .sla-bar-wrap { background: rgba(255,255,255,0.06); border-radius: 8px; height: 14px; overflow: hidden; margin-top: 8px; }
+  .sla-bar { height: 100%; border-radius: 8px; transition: width 0.4s ease, background 0.4s ease; }
+  @keyframes sla-flash { 0%,100%{opacity:1} 45%{opacity:0.18} }
+  @keyframes sla-bar-pulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
+  .sla-fail-flash { animation: sla-flash 0.75s ease-in-out infinite; }
+  .sla-bar-fail   { animation: sla-bar-pulse 0.75s ease-in-out infinite; }
+  /* per-anomaly confidence pill */
+  .conf-gate { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:600; padding:2px 7px; border-radius:10px; }
+  .conf-gate.gate-pass { background:rgba(16,185,129,0.14); color:#10b981; border:1px solid rgba(16,185,129,0.25); }
+  .conf-gate.gate-warn { background:rgba(245,158,11,0.14); color:#f59e0b; border:1px solid rgba(245,158,11,0.25); }
+  .conf-gate.gate-block{ background:rgba(239,68,68,0.14);  color:#ef4444; border:1px solid rgba(239,68,68,0.25); }
+  .anomaly-signal-row { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px; color:var(--text-secondary); flex-wrap:wrap; }
+  .anomaly-signal-row:last-child { border-bottom:none; }
+  .anomaly-svc-tag { font-size:11px; font-family:'JetBrains Mono',monospace; background:rgba(255,255,255,0.06); padding:1px 6px; border-radius:4px; color:var(--text-primary); }
+  .anomaly-type-tag { font-size:10px; font-weight:600; padding:1px 6px; border-radius:4px; background:rgba(99,102,241,0.15); color:#818cf8; }
+  .sla-label-row { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+  /* ── ML Model status badges ─────────────────────────── */
+  .ml-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; }
+  .ml-badge.active  { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+  .ml-badge.fallback{ background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+  .ml-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .ml-stack { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+
+  /* ── Chaos Panel ────────────────────────────────────── */
+  .chaos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+  .chaos-svc-btn {
+    padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(239,68,68,0.25);
+    background: rgba(239,68,68,0.06); color: var(--text-secondary); font-size: 12px;
+    cursor: pointer; text-align: left; transition: all 0.2s;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .chaos-svc-btn:hover { border-color: rgba(239,68,68,0.5); background: rgba(239,68,68,0.12); color: var(--text-primary); }
+  .chaos-svc-btn.injecting { border-color: #ef4444; background: rgba(239,68,68,0.2); color: #ef4444; animation: pulse-red 1s ease-in-out infinite; }
+  @keyframes pulse-red { 0%,100%{opacity:1} 50%{opacity:0.6} }
+  .chaos-mode-row { display: flex; gap: 8px; margin-bottom: 10px; }
+  .chaos-mode-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); background: transparent; color: var(--text-secondary); font-size: 11px; cursor: pointer; transition: all 0.2s; }
+  .chaos-mode-btn.selected { background: rgba(239,68,68,0.18); border-color: #ef4444; color: #ef4444; font-weight: 600; }
+  .chaos-log { margin-top: 12px; max-height: 90px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); }
+  .chaos-log-entry { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .chaos-log-entry.injected { color: #ef4444; }
+  .chaos-log-entry.detected { color: #f59e0b; }
+  .chaos-log-entry.remediated { color: #10b981; }
+
+  /* ── Action breakdown pills ─────────────────────────── */
+  .action-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .action-pill { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .action-pill.restart   { background: rgba(239,68,68,0.15);  color: #ef4444;  border: 1px solid rgba(239,68,68,0.3); }
+  .action-pill.scale_up  { background: rgba(34,211,238,0.12); color: #22d3ee; border: 1px solid rgba(34,211,238,0.25); }
+  .action-pill.cpu_throttle { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">🧠</div>
+      <div class="header-title">
+        <h1>AI Observability — Live RCA Dashboard</h1>
+        <p>Real-Time Anomaly Detection • Root Cause Analysis • Auto-Remediation</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="status-badge running" id="statusBadge">
+        <div class="pulse" id="statusPulse"></div>
+        <span id="statusText">Connecting...</span>
+      </div>
+      <div style="min-width:180px;">
+        <div style="display:flex;align-items:baseline;gap:8px;">
+          <div class="timer-display neutral" id="cycleTimer">--:--</div>
+          <span id="slaBadge" style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:10px;background:rgba(100,116,139,0.2);color:var(--text-muted);">SLA</span>
+        </div>
+        <div class="sla-bar-wrap"><div class="sla-bar" id="slaBar" style="width:0%;background:#10b981;"></div></div>
+        <div class="sla-label-row"><span>0s</span><span id="slaMs">0ms</span><span>15s</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="grid grid-top">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Cycles Completed</span>
+        <span class="card-icon">🔄</span>
+      </div>
+      <div class="stat-value blue" id="cycleCount">0</div>
+      <div class="stat-label">Detection cycles</div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Anomalies Detected</span>
+        <span class="card-icon">⚠️</span>
+      </div>
+      <div class="stat-value amber" id="anomalyCount">0</div>
+      <div class="stat-label">Total anomalies</div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Remediations</span>
+        <span class="card-icon">🔧</span>
+      </div>
+      <div class="stat-value green" id="remediationCount">0</div>
+      <div class="stat-label">Auto-healed</div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Services Monitored</span>
+        <span class="card-icon">🌐</span>
+      </div>
+      <div class="stat-value purple" id="serviceCount">0</div>
+      <div class="stat-label">In dependency graph</div>
+    </div>
+  </div>
+
+  <!-- ML Model Status + Chaos Panel row -->
+  <div class="grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+
+    <!-- ML pipeline status -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🧠 ML Pipeline</span>
+        <span class="card-icon" style="font-size:11px;color:var(--text-muted);">3-layer detection</span>
+      </div>
+      <div class="ml-stack" id="mlStack">
+        <span class="ml-badge fallback"><span class="ml-dot"></span>Drain3</span>
+        <span class="ml-badge fallback"><span class="ml-dot"></span>DistilBERT</span>
+        <span class="ml-badge fallback"><span class="ml-dot"></span>IsoForest</span>
+        <span class="ml-badge fallback"><span class="ml-dot"></span>LSTM/TCN</span>
+      </div>
+      <div style="margin-top:12px;font-size:11px;color:var(--text-muted);line-height:1.7;">
+        <div>Drain3 → <strong style="color:var(--text-secondary);">pre-filter</strong> log templates</div>
+        <div>DistilBERT → <strong style="color:var(--text-secondary);">re-score</strong> anomaly severity</div>
+        <div>IsoForest → <strong style="color:var(--text-secondary);">point anomalies</strong> in metrics</div>
+        <div>LSTM/TCN → <strong style="color:var(--text-secondary);">temporal drift</strong> detection</div>
+      </div>
+    </div>
+
+    <!-- Remediation action breakdown -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🔧 Remediation Actions</span>
+      </div>
+      <div class="action-pills" id="actionPills">
+        <span class="action-pill restart">restart: 0</span>
+        <span class="action-pill scale_up">scale_up: 0</span>
+        <span class="action-pill cpu_throttle">cpu_throttle: 0</span>
+      </div>
+      <div style="margin-top:12px;" id="remediatorDetail">
+        <div style="font-size:11px;color:var(--text-muted);line-height:1.8;">
+          <div>restart → error_burst, new_template, error_rate</div>
+          <div>scale_up → latency_spike, throughput_anomaly</div>
+          <div>cpu_throttle → resource_saturation, freq_spike</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:var(--text-muted);" id="graphTraceInfo">
+        Graph: <span id="graphEdges">—</span> edges • <span id="graphTraceEdges" style="color:var(--accent-cyan);font-weight:600;">0</span> from live traces • <span id="graphUpdates" style="color:var(--text-muted);">0</span> refreshes
+      </div>
+    </div>
+
+    <!-- Chaos Injection Panel -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">💥 Chaos Injection</span>
+        <span class="card-icon" style="font-size:11px;color:var(--accent-red);">DEMO</span>
+      </div>
+      <div class="chaos-mode-row">
+        <button class="chaos-mode-btn selected" onclick="selectMode('crash')" id="mode-crash">crash</button>
+        <button class="chaos-mode-btn" onclick="selectMode('stress')" id="mode-stress">stress</button>
+        <button class="chaos-mode-btn" onclick="selectMode('latency')" id="mode-latency">latency</button>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;" id="modeDesc">
+        Kill container → AI detects within 5s → restart
+      </div>
+      <div class="chaos-grid" id="chaosGrid">
+        <button class="chaos-svc-btn" onclick="injectChaos('cartservice')">cartservice <span>→</span></button>
+        <button class="chaos-svc-btn" onclick="injectChaos('productcatalogservice')">productcatalog <span>→</span></button>
+        <button class="chaos-svc-btn" onclick="injectChaos('paymentservice')">paymentservice <span>→</span></button>
+        <button class="chaos-svc-btn" onclick="injectChaos('shippingservice')">shippingservice <span>→</span></button>
+        <button class="chaos-svc-btn" onclick="injectChaos('currencyservice')">currencyservice <span>→</span></button>
+        <button class="chaos-svc-btn" onclick="injectChaos('recommendationservice')">recommendsvc <span>→</span></button>
+      </div>
+      <div class="chaos-log" id="chaosLog"></div>
+    </div>
+
+  </div>
+
+  <!-- Main panels -->
+  <div class="grid grid-main">
+    <!-- RCA Panel -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🔍 Latest Root Cause Analysis</span>
+      </div>
+      <div id="rcaContent">
+        <p style="color: var(--text-muted); font-size: 14px;">Waiting for first detection cycle...</p>
+      </div>
+    </div>
+
+    <!-- Dependency Graph -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🗺️ Service Dependency Graph</span>
+      </div>
+      <div class="graph-container" id="graphContainer">
+        <p style="color: var(--text-muted); font-size: 14px;">Loading graph...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Evidence / Incidents -->
+  <div class="grid grid-bottom">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">📋 Recent Incidents & Evidence Packets</span>
+        <span class="card-icon" style="font-size: 12px; color: var(--text-muted);" id="incidentHint">Click to inspect</span>
+      </div>
+      <div class="incident-list" id="incidentList">
+        <p style="color: var(--text-muted); font-size: 14px; padding: 20px; text-align: center;">
+          Waiting for incidents...
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Evidence Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-title">
+      <span>📦 Evidence Packet</span>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <pre class="evidence-json" id="evidenceJson"></pre>
+  </div>
+</div>
+
+<script>
+const API_BASE = window.location.origin;
+let lastIncidentCount = 0;
+
+// Graph node positions (hand-tuned for Online Boutique)
+const NODE_POSITIONS = {
+  'frontend':              { x: 45, y: 8 },
+  'recommendationservice': { x: 8,  y: 35 },
+  'productcatalogservice': { x: 8,  y: 65 },
+  'currencyservice':       { x: 35, y: 35 },
+  'cartservice':           { x: 60, y: 35 },
+  'redis-cart':            { x: 75, y: 65 },
+  'checkoutservice':       { x: 35, y: 65 },
+  'shippingservice':       { x: 55, y: 88 },
+  'emailservice':          { x: 25, y: 88 },
+  'paymentservice':        { x: 75, y: 88 },
+};
+
+function formatTime(ms) {
+  if (ms < 1000) return ms.toFixed(0) + 'ms';
+  return (ms / 1000).toFixed(1) + 's';
+}
+
+function timeAgo(timestamp) {
+  const diff = Date.now() / 1000 - timestamp;
+  if (diff < 60) return Math.floor(diff) + 's ago';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  return Math.floor(diff / 3600) + 'h ago';
+}
+
+async function fetchStatus() {
+  try {
+    const resp = await fetch(API_BASE + '/api/status');
+    const data = await resp.json();
+    updateStatus(data);
+  } catch (e) {
+    document.getElementById('statusText').textContent = 'Disconnected';
+    document.getElementById('statusBadge').className = 'status-badge stopped';
+  }
+}
+
+async function fetchIncidents() {
+  try {
+    const resp = await fetch(API_BASE + '/api/incidents?count=20');
+    const data = await resp.json();
+    updateIncidents(data);
+  } catch (e) { /* ignore */ }
+}
+
+async function fetchGraph() {
+  try {
+    const resp = await fetch(API_BASE + '/api/graph');
+    const data = await resp.json();
+    renderGraph(data);
+  } catch (e) { /* ignore */ }
+}
+
+function updateStatus(data) {
+  // Status badge
+  const isRunning = data.status === 'running';
+  document.getElementById('statusText').textContent = isRunning ? 'Engine Running' : 'Stopped';
+  document.getElementById('statusBadge').className = 'status-badge ' + (isRunning ? 'running' : 'stopped');
+
+  // Stats
+  document.getElementById('cycleCount').textContent = data.cycle_count || 0;
+  document.getElementById('anomalyCount').textContent = data.total_anomalies_detected || 0;
+  document.getElementById('remediationCount').textContent = data.total_remediations || 0;
+  document.getElementById('serviceCount').textContent = data.components?.graph?.total_services || 0;
+
+  // ── SLA Gauge ─────────────────────────────────────────────────────
+  const ms = data.last_cycle_time_ms || 0;
+  const timer = document.getElementById('cycleTimer');
+  const slaBar = document.getElementById('slaBar');
+  const slaBadge = document.getElementById('slaBadge');
+  const slaMs = document.getElementById('slaMs');
+  if (ms > 0) {
+    const pct = Math.min(100, (ms / 15000) * 100);
+    timer.textContent = formatTime(ms);
+    slaMs.textContent = ms.toFixed(0) + 'ms';
+    slaBar.style.width = pct + '%';
+    // Remove flash classes before reassigning
+    slaBar.classList.remove('sla-bar-fail');
+    slaBadge.classList.remove('sla-fail-flash');
+    if (ms < 10000) {
+      timer.className = 'timer-display pass';
+      slaBar.style.background = '#10b981';
+      slaBadge.style.background = 'rgba(16,185,129,0.18)';
+      slaBadge.style.color = '#10b981';
+      slaBadge.textContent = 'PASS';
+    } else if (ms < 15000) {
+      timer.className = 'timer-display pass';
+      slaBar.style.background = '#f59e0b';
+      slaBadge.style.background = 'rgba(245,158,11,0.18)';
+      slaBadge.style.color = '#f59e0b';
+      slaBadge.textContent = 'WARN';
+    } else {
+      timer.className = 'timer-display fail';
+      slaBar.style.background = '#ef4444';
+      slaBadge.style.background = 'rgba(239,68,68,0.2)';
+      slaBadge.style.color = '#ef4444';
+      slaBadge.textContent = '⚠ FAIL';
+      // Persistent flash animation while SLA is breached
+      slaBar.classList.add('sla-bar-fail');
+      slaBadge.classList.add('sla-fail-flash');
+    }
+  }
+
+  // ── ML Pipeline badges ────────────────────────────────────────────
+  const logDet = data.components?.log_detector || {};
+  const metDet = data.components?.metric_detector || {};
+  const graph  = data.components?.graph || {};
+  const rem    = data.components?.remediator || {};
+  const mlStack = document.getElementById('mlStack');
+  if (mlStack) {
+    const drain3Active  = (logDet.total_logs_processed || 0) > 0 || (data.cycle_count || 0) > 0;
+    const bertActive    = logDet.bert_model_loaded !== false;
+    const isoActive     = (metDet.models_trained || 0) > 0;
+    const lstmActive    = metDet.lstm_services_tracked > 0;
+    const badge = (label, active) =>
+      `<span class="ml-badge ${active ? 'active' : 'fallback'}"><span class="ml-dot"></span>${label}</span>`;
+    mlStack.innerHTML =
+      badge('Drain3', drain3Active) +
+      badge('DistilBERT' + (bertActive ? '' : ' ↩ kw'), bertActive) +
+      badge('IsoForest x' + (metDet.models_trained || 0), isoActive) +
+      badge('LSTM/TCN x' + (metDet.lstm_services_tracked || 0), lstmActive);
+  }
+
+  // ── Action breakdown pills ────────────────────────────────────────
+  const byAction = rem.by_action_type || {};
+  const pills = document.getElementById('actionPills');
+  if (pills && Object.keys(byAction).length > 0) {
+    pills.innerHTML = Object.entries(byAction).map(([act, stats]) =>
+      `<span class="action-pill ${act}">${act}: ${stats.success}/${stats.total}</span>`
+    ).join('');
+  }
+
+  // ── Graph trace-learning stats ────────────────────────────────────
+  const ge = document.getElementById('graphEdges');
+  const gte = document.getElementById('graphTraceEdges');
+  const gtu = document.getElementById('graphUpdates');
+  if (ge) ge.textContent = graph.total_edges || '—';
+  if (gte) gte.textContent = graph.edges_from_live_traces || 0;
+  if (gtu) gtu.textContent = (graph.trace_updates || 0) + 'x';
+}
+
+function updateIncidents(incidents) {
+  const list = document.getElementById('incidentList');
+  if (!incidents || incidents.length === 0) return;
+
+  let html = '';
+  // Show newest first
+  const sorted = [...incidents].reverse();
+
+  for (const inc of sorted) {
+    const rootSvc = inc.root_cause?.service || 'unknown';
+    const confidence = ((inc.root_cause?.confidence || 0) * 100).toFixed(0);
+    const totalMs = inc.timing?.total_cycle_ms || 0;
+    const budget = inc.timing?.budget_15s || '?';
+    const ts = inc.cycle_timestamp || 0;
+    const chain = inc.root_cause?.causal_chain || [];
+    const action = inc.remediation?.action || 'none';
+    const status = inc.remediation?.status || 'pending';
+
+    html += `
+      <div class="incident-item" onclick='showEvidence(${JSON.stringify(JSON.stringify(inc))})'>
+        <div class="incident-header">
+          <span class="incident-id">#${inc.incident_id || '???'}</span>
+          <span class="incident-time">${timeAgo(ts)}</span>
+        </div>
+        <div class="incident-body">
+          <span class="incident-service" style="color: var(--accent-red);">🎯 ${rootSvc}</span>
+          <span style="color: var(--text-muted); font-size: 12px;">conf: ${confidence}%</span>
+          <span style="color: var(--text-muted); font-size: 12px;">⏱ ${formatTime(totalMs)}</span>
+          <span class="incident-badge ${budget === 'PASS' ? 'badge-pass' : 'badge-fail'}">${budget}</span>
+          <span style="color: var(--text-secondary); font-size: 12px; margin-left: auto;">🔧 ${action} → ${status}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  list.innerHTML = html;
+
+  // Update RCA panel with latest incident
+  const latest = sorted[0];
+  if (latest) updateRCA(latest);
+}
+
+function updateRCA(incident) {
+  const container = document.getElementById('rcaContent');
+  const rootSvc = incident.root_cause?.service || 'unknown';
+  const confidence = incident.root_cause?.confidence || 0;
+  const chain = incident.root_cause?.causal_chain || [];
+  const reasoning = incident.root_cause?.reasoning || '';
+  const action = incident.remediation?.action || 'none';
+  const status = incident.remediation?.status || 'pending';
+  const totalMs = incident.timing?.total_cycle_ms || 0;
+  const budget = incident.timing?.budget_15s || '?';
+
+  let chainHtml = '';
+  for (let i = 0; i < chain.length; i++) {
+    const isRoot = (chain[i] === rootSvc);
+    chainHtml += `<span class="rca-node ${isRoot ? 'root' : 'affected'}">${chain[i]}</span>`;
+    if (i < chain.length - 1) chainHtml += `<span class="rca-arrow">→</span>`;
+  }
+
+  // Build per-anomaly signal rows with individual confidence gates
+  const MIN_CONF = 0.60;
+  const logAnoms = incident.detection?.log_anomalies || [];
+  const metAnoms = incident.detection?.metric_anomalies || [];
+  const allSignals = [
+    ...logAnoms.map(a => ({...a, source: 'log', conf: a.severity || 0})),
+    ...metAnoms.map(a => ({...a, source: 'metric', conf: a.severity || 0})),
+  ];
+  let signalRows = '';
+  if (allSignals.length > 0) {
+    signalRows = `<div style="margin: 10px 0 4px; font-size: 11px; font-weight:600; color:var(--text-muted); letter-spacing:0.05em;">DETECTION SIGNALS — CONFIDENCE GATES</div>`;
+    for (const sig of allSignals) {
+      const conf = sig.conf;
+      const gateClass = conf >= 0.85 ? 'gate-pass' : conf >= MIN_CONF ? 'gate-warn' : 'gate-block';
+      const gateLabel = conf >= MIN_CONF ? `✓ ${(conf*100).toFixed(0)}%` : `✗ ${(conf*100).toFixed(0)}% < 60%`;
+      const srcColor = sig.source === 'log' ? '#818cf8' : '#06b6d4';
+      signalRows += `
+        <div class="anomaly-signal-row">
+          <span style="font-size:10px;font-weight:700;color:${srcColor};min-width:36px;">${sig.source.toUpperCase()}</span>
+          <span class="anomaly-svc-tag">${sig.service || '?'}</span>
+          <span class="anomaly-type-tag">${sig.anomaly_type || '?'}</span>
+          <span class="conf-gate ${gateClass}">${gateLabel}</span>
+        </div>`;
+    }
+  }
+
+  // Remediation gate display
+  const confGateStr = incident.remediation?.confidence_gate || '';
+  const gateDisplay = confGateStr.includes('passed')
+    ? `<span class="conf-gate gate-pass" style="font-size:11px;">✓ gate passed: ${(confidence*100).toFixed(0)}% ≥ 60%</span>`
+    : confGateStr.includes('blocked')
+    ? `<span class="conf-gate gate-block" style="font-size:11px;">✗ gate blocked: ${(confidence*100).toFixed(0)}% &lt; 60%</span>`
+    : `<span class="conf-gate gate-warn" style="font-size:11px;">${confGateStr}</span>`;
+
+  container.innerHTML = `
+    <div style="margin-bottom: 12px;">
+      <span style="font-size: 13px; color: var(--text-muted);">Root Cause Service:</span>
+      <span style="font-size: 20px; font-weight: 700; color: var(--accent-red); margin-left: 8px;">🎯 ${rootSvc}</span>
+    </div>
+    <div class="rca-chain">${chainHtml}</div>
+    <p style="font-size: 13px; color: var(--text-secondary); margin: 12px 0 6px; line-height: 1.6;">${reasoning}</p>
+    ${signalRows}
+    <div style="display: flex; gap: 16px; margin-top: 14px; font-size: 13px; flex-wrap:wrap; align-items:center;">
+      <div>
+        <span style="color: var(--text-muted);">Action:</span>
+        <span class="action-pill ${action}" style="font-size:11px;padding:2px 8px;border-radius:10px;margin-left:4px;"> 🔧 ${action}</span>
+      </div>
+      <div>
+        <span style="color: var(--text-muted);">Status:</span>
+        <span style="color: ${status === 'success' ? 'var(--accent-green)' : 'var(--accent-amber)'}; font-weight: 600;"> ${status}</span>
+      </div>
+      <div>
+        <span style="color: var(--text-muted);">Cycle:</span>
+        <span style="color: ${budget === 'PASS' ? 'var(--accent-green)' : 'var(--accent-red)'}; font-weight: 600;"> ${formatTime(totalMs)} [${budget}]</span>
+      </div>
+    </div>
+    <div style="margin-top:10px; display:flex; align-items:center; gap:10px;">
+      <div style="flex:1;">
+        <div class="confidence-bar">
+          <div class="confidence-fill" style="width: ${(confidence * 100).toFixed(0)}%;"></div>
+        </div>
+        <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+          RCA Confidence: ${(confidence * 100).toFixed(0)}%
+        </div>
+      </div>
+      ${gateDisplay}
+    </div>
+  `;
+
+  // Update graph highlighting
+  highlightGraph(rootSvc, chain);
+}
+
+function renderGraph(graphData) {
+  const container = document.getElementById('graphContainer');
+  let html = '';
+
+  const allServices = new Set();
+  for (const [caller, callees] of Object.entries(graphData)) {
+    allServices.add(caller);
+    for (const callee of callees) allServices.add(callee);
+  }
+
+  for (const svc of allServices) {
+    const pos = NODE_POSITIONS[svc] || { x: 50, y: 50 };
+    html += `<div class="graph-node" id="node-${svc}" style="left: ${pos.x}%; top: ${pos.y}%;">${svc}</div>`;
+  }
+
+  container.innerHTML = html;
+}
+
+function highlightGraph(rootCause, chain) {
+  // Reset all nodes
+  document.querySelectorAll('.graph-node').forEach(n => {
+    n.classList.remove('anomalous', 'root-cause');
+  });
+
+  // Highlight causal chain
+  for (const svc of chain) {
+    const node = document.getElementById('node-' + svc);
+    if (node) {
+      if (svc === rootCause) {
+        node.classList.add('root-cause');
+      } else {
+        node.classList.add('anomalous');
+      }
+    }
+  }
+}
+
+function showEvidence(jsonStr) {
+  const data = JSON.parse(jsonStr);
+  document.getElementById('evidenceJson').textContent = JSON.stringify(data, null, 2);
+  document.getElementById('modalOverlay').classList.add('active');
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('active');
+}
+
+document.getElementById('modalOverlay').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeModal();
+});
+
+// Initial fetch
+fetchStatus();
+fetchGraph();
+fetchIncidents();
+
+// Poll every 2 seconds
+setInterval(fetchStatus, 2000);
+setInterval(fetchIncidents, 3000);
+setInterval(fetchGraph, 10000);
+
+// ── Chaos Injection ───────────────────────────────────────────────────
+let _chaosMode = 'crash';
+const MODE_DESCS = {
+  crash:   'Kill container → AI detects error_burst → restart remediation',
+  stress:  'CPU stress loop → AI detects resource_saturation → cpu_throttle',
+  latency: 'Network delay 500ms → AI detects latency_spike → scale_up',
+};
+
+function selectMode(mode) {
+  _chaosMode = mode;
+  ['crash','stress','latency'].forEach(m => {
+    document.getElementById('mode-' + m).classList.toggle('selected', m === mode);
+  });
+  document.getElementById('modeDesc').textContent = MODE_DESCS[mode] || '';
+}
+
+function logChaos(msg, cls) {
+  const log = document.getElementById('chaosLog');
+  const el = document.createElement('div');
+  el.className = 'chaos-log-entry ' + (cls || '');
+  el.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+  log.prepend(el);
+  while (log.children.length > 20) log.removeChild(log.lastChild);
+}
+
+async function injectChaos(service) {
+  const btn = [...document.querySelectorAll('.chaos-svc-btn')]
+    .find(b => b.textContent.includes(service.replace('service','').replace('recommendation','recommends')));
+  if (btn) {
+    btn.classList.add('injecting');
+    setTimeout(() => btn.classList.remove('injecting'), 3000);
+  }
+
+  logChaos(`INJECT  ${_chaosMode.toUpperCase()} → ${service}`, 'injected');
+
+  try {
+    const resp = await fetch(API_BASE + '/api/chaos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service, mode: _chaosMode }),
+    });
+    const data = await resp.json();
+
+    if (data.status === 'injected') {
+      logChaos(`EXPECT  ${data.expected_remediation} within ${data.sla_window_s}s`, 'detected');
+      // After estimated detection window, check for new incident
+      setTimeout(() => {
+        logChaos(`WATCH   Checking for remediation of ${service}...`, 'detected');
+        fetchIncidents();
+        fetchStatus();
+      }, (POLL_INTERVAL_MS * 3));
+      setTimeout(() => {
+        logChaos(`CHECK   15s SLA window closing for ${service}`, 'detected');
+        fetchIncidents();
+      }, 14000);
+    } else {
+      logChaos(`BLOCKED ${data.reason || 'unknown'}`, '');
+    }
+  } catch (e) {
+    logChaos(`ERROR   Could not reach AI engine: ${e.message}`, '');
+  }
+}
+
+// Poll interval in ms (matches server POLL_INTERVAL)
+const POLL_INTERVAL_MS = 5000;
+
+// Monitor for new remediations and log to chaos log
+let _lastRemCount = 0;
+setInterval(() => {
+  const cur = parseInt(document.getElementById('remediationCount').textContent || '0');
+  if (cur > _lastRemCount && _lastRemCount > 0) {
+    const diff = cur - _lastRemCount;
+    logChaos(`HEALED  ${diff} remediation(s) executed ✓`, 'remediated');
+  }
+  _lastRemCount = cur;
+}, 2500);
+</script>
+</body>
+</html>

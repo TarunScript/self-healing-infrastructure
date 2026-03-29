@@ -1,0 +1,30 @@
+# Promtail config — scrapes Docker container logs and pushes to Loki
+# File: promtail/promtail-config.yaml
+# Adds service_namespace=online-boutique label to match Grafana dashboard queries
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker
+          service_namespace: online-boutique
+          __path__: /var/lib/docker/containers/*/*-json.log
+    pipeline_stages:
+      - docker: {}
+      - regex:
+          source: filename
+          expression: '/var/lib/docker/containers/(?P<container_id>[^/]+)/.*'
+      - labels:
+          container_id:

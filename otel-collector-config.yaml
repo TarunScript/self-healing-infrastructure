@@ -1,0 +1,187 @@
+# Unified OTel Collector pipeline: logs/metrics/traces with trace_id propagation
+# File: otel-collector-config.yaml
+# Schema: opentelemetry-collector-contrib v0.96.0
+
+# ═══════════════════════════════════════════════════════
+# RECEIVERS
+# ═══════════════════════════════════════════════════════
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+        max_recv_msg_size_mib: 4
+      http:
+        endpoint: "0.0.0.0:4318"
+
+
+# ═══════════════════════════════════════════════════════
+# PROCESSORS
+# ═══════════════════════════════════════════════════════
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 400
+    spike_limit_mib: 100
+
+  batch:
+    timeout: 1s
+    send_batch_size: 512
+    send_batch_max_size: 1024
+
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: "hackathon-demo"
+        action: upsert
+      - key: observability.pipeline
+        value: "otel-collector"
+        action: upsert
+
+  resource/loki:
+    attributes:
+      - key: loki.resource.labels
+        value: "service.name, service.namespace, deployment.environment"
+        action: insert
+
+  transform/logs:
+    log_statements:
+      - context: log
+        statements:
+          - set(attributes["severity"], severity_text) where severity_text != ""
+
+  transform/metrics:
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["collector_pipeline"], "otel-unified")
+
+  filter/traces:
+    error_mode: ignore
+    traces:
+      span:
+        - 'attributes["http.target"] == "/_healthz"'
+        - 'attributes["http.target"] == "/health"'
+        - 'attributes["http.target"] == "/ready"'
+
+
+# ═══════════════════════════════════════════════════════
+# CONNECTORS
+# ═══════════════════════════════════════════════════════
+connectors:
+  spanmetrics:
+    histogram:
+      explicit:
+        buckets: [2ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s]
+    dimensions:
+      - name: http.method
+      - name: http.status_code
+      - name: rpc.grpc.status_code
+    exemplars:
+      enabled: true
+    dimensions_cache_size: 1000
+    aggregation_temporality: "AGGREGATION_TEMPORALITY_CUMULATIVE"
+    metrics_flush_interval: 5s
+
+
+# ═══════════════════════════════════════════════════════
+# EXPORTERS
+# ═══════════════════════════════════════════════════════
+exporters:
+  # Logs → Loki (OTLP native endpoint)
+  otlphttp/loki:
+    endpoint: "http://loki:3100/otlp"
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: true
+      initial_interval: 2s
+      max_interval: 30s
+      # FIX: was 30s — not enough if Loki takes time. Now 300s so retries outlast startup delays.
+      max_elapsed_time: 300s
+
+  # Traces → Jaeger (OTLP gRPC)
+  # FIX: Jaeger container listens on port 4317 internally (host maps it to 4319 to avoid
+  # collision, but container-to-container uses the internal port directly).
+  otlp/jaeger:
+    endpoint: "jaeger:4317"
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: true
+      initial_interval: 2s
+      max_interval: 30s
+      # FIX: was 30s — extended to 300s so the collector keeps retrying until Jaeger is ready
+      max_elapsed_time: 300s
+
+  # Prometheus scrape endpoint — exposes span-derived RED metrics for Grafana
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    resource_to_telemetry_conversion:
+      enabled: true
+    enable_open_metrics: true
+
+  # FIX: Removed prometheusremotewrite from the application metrics pipeline.
+  # It was pushing raw OTLP app metrics via remote-write AND the spanmetrics connector
+  # was exposing span-derived metrics via scrape — causing a split that made Grafana
+  # dashboards unreliable. Now ALL metrics flow through the prometheus scrape exporter
+  # on :8889, which Prometheus scrapes on a consistent 5s interval.
+  #
+  # The prometheus scrape exporter below handles both pipelines cleanly.
+
+  debug:
+    verbosity: basic
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+
+# ═══════════════════════════════════════════════════════
+# EXTENSIONS
+# ═══════════════════════════════════════════════════════
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+  pprof:
+    endpoint: "0.0.0.0:1777"
+  zpages:
+    endpoint: "0.0.0.0:55679"
+
+
+# ═══════════════════════════════════════════════════════
+# SERVICE — pipeline wiring
+# ═══════════════════════════════════════════════════════
+service:
+  extensions: [health_check, pprof, zpages]
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      address: "0.0.0.0:8888"
+
+  pipelines:
+    # ── TRACES ──
+    # OTLP in → filter health checks → enrich → batch → Jaeger + generate span metrics
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/traces, resource, batch]
+      exporters: [otlp/jaeger, spanmetrics, debug]
+
+    # ── METRICS (application OTLP metrics from microservices) ──
+    # FIX: removed prometheusremotewrite; all metrics now go through the prometheus
+    # scrape exporter on :8889 so Prometheus has one consistent pull source
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, transform/metrics, batch]
+      exporters: [prometheus, debug]
+
+    # ── METRICS (span-derived RED metrics from spanmetrics connector) ──
+    metrics/spanmetrics:
+      receivers: [spanmetrics]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+
+    # ── LOGS ──
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, resource/loki, transform/logs, batch]
+      exporters: [otlphttp/loki, debug]

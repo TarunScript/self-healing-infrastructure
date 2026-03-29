@@ -1,0 +1,16 @@
+# Grafana dashboard provisioning — auto-loads dashboard from JSON
+# File: grafana/provisioning/dashboards/dashboards.yaml
+
+apiVersion: 1
+
+providers:
+  - name: "AI Observability"
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

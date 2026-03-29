@@ -1,0 +1,31 @@
+# AI Engine dependencies — pinned for demo stability
+# File: ai_engine/requirements.txt
+
+# ── Core ML / Anomaly Detection ───────────────────────────────────────
+scikit-learn==1.4.0
+drain3==0.9.11
+numpy==1.26.3
+
+# ── Transformer / NLP (DistilBERT log classifier) ────────────────────
+# Used for 2-stage log anomaly pipeline: Drain3 pre-filter → DistilBERT re-score
+transformers==4.38.2
+torch==2.2.1          # CPU-only; swap for torch+cu121 on GPU hosts
+tokenizers==0.15.2
+huggingface-hub==0.21.4
+
+# ── HTTP / API clients ────────────────────────────────────────────────
+requests==2.31.0
+aiohttp==3.9.3
+
+# ── Docker SDK for remediation ────────────────────────────────────────
+docker==7.0.0
+
+# ── Prometheus client for querying ───────────────────────────────────
+prometheus-api-client==0.5.5
+
+# ── Logging & utilities ───────────────────────────────────────────────
+structlog==24.1.0
+python-json-logger==2.0.7
+
+# ── Lightweight HTTP server for health check / API ────────────────────
+flask==3.0.1
